@@ -1,0 +1,58 @@
+{
+	"targets":
+	[
+		{
+			"name": ".",
+			
+			"otherCompilerFlags":
+			[
+				"-nodefaultlibs",
+				"--function-sections",
+				"-fno-exceptions",
+				"-Wl,--gc-sections"
+			]
+		},
+		{
+			"name": "LPC1343",
+			"extends": ".",
+			"sources":
+			[
+				{
+					"base": "platform",
+					"dir": "nxp",
+					"name": "LPC13xx.S"
+				}
+			],
+			"include":
+			[
+				{"base": "platform", "dir": "nxp"}
+			],
+			"linkFile": {"base": "platform", "dir": "nxp", "name": "LPC1343.x"},
+			"definitions":
+			{
+				"PART": "lpc1343"
+			},
+			"settings":
+			{
+				"debug": true,
+				"gaunt": true
+			}
+		},
+		{
+			"name": "Galago4",
+			"extends": "LPC1343",
+			"sources":
+			[
+				{"base": "platform", "dir": "galago", "name": "GalagoAPI.cpp"}
+			],
+			"otherCompilerFlags":
+			[
+				"-Os"
+			],
+			"include":
+			[
+				{"base": "platform", "dir": "galago"}
+			]
+		}
+	]
+}
