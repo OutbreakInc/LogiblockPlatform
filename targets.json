@@ -15,7 +15,7 @@
 		{
 			"name": "LPC1343",
 			"extends": ".",
-			"sources":
+			"files":
 			[
 				{
 					"base": "platform",
@@ -41,7 +41,7 @@
 		{
 			"name": "Galago4",
 			"extends": "LPC1343",
-			"sources":
+			"files":
 			[
 				{"base": "platform", "dir": "galago", "name": "GalagoAPI.cpp"}
 			],
