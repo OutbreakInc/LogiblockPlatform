@@ -13,17 +13,8 @@
 			]
 		},
 		{
-			"name": "CortexM3",
-			"extends": ".",
-			"otherCompilerFlags":
-			[
-				"-march=armv7-m",
-				"-mcpu=cortex-m3"
-			]
-		},
-		{
 			"name": "LPC1343",
-			"extends": "CortexM3",
+			"extends": ".",
 			"files":
 			[
 				{
