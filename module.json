@@ -1,0 +1,6 @@
+{
+	"name":"platform",
+	"version":"0.1",
+	"tags":["galago","platform","linker","scripts","moduleverse"],
+	"description":"Product platform layer, gcc toolchain driver and Moduleverse interface.  This layer is responsible for parts of the development tools that are not built-in to a pure gcc toolchain and are not part of a device-independent IDE, for example the start-up code, linker scripts and low-level headers."
+}
