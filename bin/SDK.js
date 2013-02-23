@@ -3,6 +3,7 @@ module.exports = (function(){
 var fs = require("fs");
 var childProcess = require("child_process");
 var http = require("http");
+var moduleverse = require("moduleverse");
 
 var _ =
 {
@@ -389,6 +390,10 @@ Compiler.prototype =
 	toolchain: null,
 	targets: null,
 	
+	//dirs must contain
+	//  sdk: sdk root - ./bin/gcc
+	//	module: modules root - ./modulename/version
+	//  output: output directory - ./out.elf
 	compile: function(dirs, callback)
 	{
 		var ths = this;
@@ -432,42 +437,23 @@ function Compiler()
 	this.targets = new Targets();
 }
 
-ModuleCache.prototype =
-{
-	toolchain: null,
-	targets: null,
-	
-	search: function(dirs, queryString, callback)
-	{
-		
-	},
-	
-	getAllPresent: function(dirs, callback)
-	{
-	},
-	
-	//version: passing falsy means ">0" ("any")
-	isPresent: function(dirs, moduleName, version, callback)
-	{
-		
-	},
-	
-	//checks if a module is present, downloads if not
-	//version: passing falsy means ">0" ("any")
-	ensurePresent: function(dirs, moduleName, version, callback)
-	{
-		
-	},
-};
-function ModuleCache()
-{
-}
-
 return(
 {
 	Compiler: Compiler
 });
 
 })();
+
+if(require.main == module)
+{
+	var compiler = new module.exports.Compiler();
+
+	compiler.compile(
+	{
+		sdk: "",
+		modules: "",
+		output: "",
+	})
+}
 
 ////////////////////////////////////////////////////////////////
