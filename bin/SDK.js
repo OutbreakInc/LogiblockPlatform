@@ -1,9 +1,50 @@
-module.exports = (function(){
-
+//requires are usually stated inside the exports= block below but here they're shared with the entrypoint driver (at bottom of file)
 var fs = require("fs");
+var path = require("path");
 var childProcess = require("child_process");
 var http = require("http");
 var moduleverse = require("moduleverse");
+
+////////////////////////////////////////////////////////////////
+
+var Config =
+{
+	baseDir: function baseDir()
+	{
+		switch(process.platform)
+		{
+		case "darwin":	return(process.env["HOME"] + "/Library/Application Support/Logiblock/modules");
+		default:
+		case "linux":	return(process.env["HOME"] + ".logiblock/modules");
+		case "win32":	return(path.join(process.env["APPDATA"], "Logiblock", "modules"));
+		}
+	},
+	platformName: function sdkName()
+	{
+		switch(process.platform)
+		{
+		case "darwin":	return("platform-mac64");
+		default:
+		case "linux":	return("platform-linux64");
+		case "win32":	return("platform-win32");
+		}
+	},
+	sdkName: function sdkName()
+	{
+		switch(process.platform)
+		{
+		case "darwin":	return("sdk-arm-gcc-mac64");
+		default:
+		case "linux":	return("sdk-arm-gcc-linux64");
+		case "win32":	return("sdk-arm-gcc-win32");
+		}
+	}
+};
+
+
+////////////////////////////////////////////////////////////////
+
+module.exports = (function(){
 
 var _ =
 {
@@ -51,7 +92,7 @@ Module.prototype =
 	
 	open: function(callback)
 	{
-		var pJSONPath = this.rootPath + "/project.json";
+		var pJSONPath = path.join(this.rootPath, "module.json");
 		fs.readFile(pJSONPath, "utf8", function(err, data)
 		{
 			if(err)
@@ -89,12 +130,12 @@ Toolchain.prototype =
 		var resolvedPaths = [];
 		paths.forEach(function(source)
 		{
-			var path = [];
-			if(basesTable[source.base])	path.push(basesTable[source.base]);
-			else						path.push(basesTable[defaultBase]);
-			if(source.dir)				path.push(source.dir);
-			path.push(source.name);
-			resolvedPaths.push(path.join("/"));
+			var filePath = [];
+			if(basesTable[source.base])	filePath.push(basesTable[source.base]);
+			else						filePath.push(basesTable[defaultBase]);
+			if(source.dir)				filePath.push(source.dir);
+			filePath.push(source.name);
+			resolvedPaths.push(path.join.apply(path, filePath));
 		});
 		return(resolvedPaths);
 	},
@@ -125,30 +166,33 @@ Toolchain.prototype =
 		
 		//paths used to resolve complex referenced paths
 		pathsTable = _.extend({}, pathsTable);
+		console.log("pathsTable=", pathsTable);
 		
 		if(project.linkFile)
-			this.resolvePaths([project.linkFile], pathsTable, "module").forEach(function(path)
+			this.resolvePaths([project.linkFile], pathsTable, "project").forEach(function(path)
 			{
 				args.push("-T", path);
 			});
 		
 		//resolve and add include files
 		if(project.include)
-			this.resolvePaths(project.include, pathsTable, "module").forEach(function(path)
+			this.resolvePaths(project.include, pathsTable, "project").forEach(function(path)
 			{
 				args.push("-I", path);
 			});
 		
 		//resolve and add sources
-		args = args.concat(this.resolvePaths(project.files, pathsTable, "module"));
+		args = args.concat(this.resolvePaths(project.files, pathsTable, "project"));
 
 		//compile!
-		var compiler = childProcess.spawn(pathsTable.sdk + "/bin/arm-none-eabi-g++", args,
+		var compilerPath = path.join(pathsTable.sdk, "bin", "arm-none-eabi-g++");
+		console.log("compilerPath=", compilerPath, "args=", args);
+		var compiler = childProcess.spawn(compilerPath, args,
 		{
 			env:
 			{
-				"PATH": (pathsTable.sdk + "/bin"),
-				"LD_PATH": (pathsTable.sdk + "/lib")
+				"PATH": path.join(pathsTable.sdk, "bin"),
+				"LD_PATH": path.join(pathsTable.sdk, "lib")
 			}
 		});
 		compiler.stdout.setEncoding("utf8");
@@ -167,6 +211,9 @@ Toolchain.prototype =
 		}.bind(this));
 		compiler.on("exit", function(returnCode)
 		{
+			console.log("stdout: ", stdout);
+			console.log("stderr: ", stderr);
+
 			//for each line of output, see if it matches the way GCC formats an error
 			stderr.split("\n").forEach(function(line)
 			{
@@ -210,12 +257,12 @@ Toolchain.prototype =
 		
 		args = args.concat(objectFileArray);
 		
-		var disassembler = childProcess.spawn(pathsTable.sdk + "/bin/arm-none-eabi-objdump", args,
+		var disassembler = childProcess.spawn(path.join(pathsTable.sdk, "bin", "arm-none-eabi-objdump"), args,
 		{
 			env:
 			{
-				"PATH": (pathsTable.sdk + "/bin"),
-				"LD_PATH": (pathsTable.sdk + "/lib")
+				"PATH": path.join(pathsTable.sdk, "bin"),
+				"LD_PATH": path.join(pathsTable.sdk, "lib")
 			}
 		});
 		disassembler.stdout.setEncoding("utf8");
@@ -310,26 +357,6 @@ function Targets()
 }
 
 
-Dependencies.prototype =
-{
-	baseDir: null,
-	
-	find: function(ownerName, moduleName)
-	{
-		var modulePath = ownerName + "_" + moduleName;
-		
-		var mod = new Module(baseDir + "/" + modulePath);
-		mod.open();
-		if(!mod.exists())
-			console.log("Can't find, and would have to download module: " + moduleName);
-	}
-};
-function Dependencies(baseDir)
-{
-}
-
-
-
 ////////////////////////////////////////////////////////////////
 
 
@@ -392,17 +419,18 @@ Compiler.prototype =
 	
 	//dirs must contain
 	//  sdk: sdk root - ./bin/gcc
-	//	module: modules root - ./modulename/version
+	//  project: active project root - ./module.json
+	//	module: module cache root - ./modulename/version
 	//  output: output directory - ./out.elf
 	compile: function(dirs, callback)
 	{
 		var ths = this;
-		this.targets.open(dirs.platform + "/targets.json", function(err)
+		this.targets.open(path.join(dirs.platform, "targets.json"), function(err)
 		{
 			if(err)	return(callback(err));
 			
-			var module = new Module(dirs.module);
-			module.open(function(err, moduleJson)
+			var project = new Module(dirs.project);
+			project.open(function(err, moduleJson)
 			{
 				if(err)	return(callback(err));
 				var targetName = moduleJson.compatibleWith[0];	//@@hack!
@@ -412,21 +440,37 @@ Compiler.prototype =
 				if(!settings)
 					return(callback(new Error("Could not resolve target '" + targetName + "'")));
 				
-				var outputName = (dirs.output || dirs.module || ".") + "/module.elf";
-				ths.toolchain.compile(dirs, outputName, settings, function(err, compileResult)
+				var deps = [];
+				//resolve dependencies
+				for(var depName in settings.dependencies)
 				{
-					//console.log("compilation complete: ", compileResult);
-					if(err)	return(callback(err));
-					
-					// @@diag and debug
-					ths.toolchain.disassemble(dirs, [outputName], function(err, result)
+					var dep = settings.dependencies[depName];
+					deps.push(moduleverse.findLocalInstallation(Config.moduleDir(), depName, dep));
+				}
+
+				var build = function build(dependencyJSON)
+				{
+					var outputName = path.join((dirs.output || dirs.project || "."), "module.elf");
+					ths.toolchain.compile(dirs, outputName, settings, function(err, compileResult)
 					{
-						//output it somewhere, e.g. stream it to a disassembly file
+						//console.log("compilation complete: ", compileResult);
+						if(err)	return(callback(err));
 						
+						// @@diag and debug
+						/*ths.toolchain.disassemble(dirs, [outputName], function(err, result)
+						{
+							//output it somewhere, e.g. stream it to a disassembly file
+							
+						});*/
+						
+						callback(undefined, outputName, compileResult);
 					});
-					
-					callback(undefined, outputName, compileResult);
-				});
+				};
+				
+				if(deps.length > 0)
+					Q.all(deps, build);
+				else
+					build([]);
 			});
 		});
 	}
@@ -444,16 +488,39 @@ return(
 
 })();
 
+///////////////////////////////////////////////////////////////
+
 if(require.main == module)
 {
 	var compiler = new module.exports.Compiler();
 
-	compiler.compile(
-	{
-		sdk: "",
-		modules: "",
-		output: "",
-	})
-}
+	var projectBase = process.argv[2] || process.cwd;
 
-////////////////////////////////////////////////////////////////
+	//@@asyncly determine the sdk path.
+	//  The platform (this), project and output paths are determined without lookup.
+	//  Module paths of dependencies are determined recursively.
+	var sdkPromise = moduleverse.findLocalInstallation(Config.baseDir(), "SDK");	//take the latest installed SDK
+
+	sdkPromise.then(function(sdkBase)
+	{
+		if(sdkBase == undefined)	//no compiler! download it?
+			throw(new Error("No SDK found. This tool cannot work without an SDK."));
+
+		console.log("found compiler at: ", sdkBase);
+		compiler.compile(
+		{
+			sdk: sdkBase.__path,
+			project: projectBase,
+			platform: path.resolve(__dirname, ".."),
+			module: Config.baseDir(),
+			output: projectBase,	//@@for now
+		}, function()
+		{
+			console.log("compile() result: ", arguments);
+		});
+
+	}).fail(function(error)
+	{
+		console.error("Error! ", error);
+	});
+}
