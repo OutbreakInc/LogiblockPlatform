@@ -1,0 +1,26 @@
+{
+	"name": "logiblock-sdk",
+	"version": "0.0.1",
+	"description": "Logiblock.com SDK driver",
+	"main": "SDK.js",
+	"scripts":
+	{
+		"test": "true"
+	},
+	"repository": "",
+	"keywords":
+	[
+		"logiblock",
+		"moduleverse",
+		"sdk",
+		"toolchain",
+		"compiler",
+		"debugger"
+	],
+	"dependencies":
+	{
+		"moduleverse": ">0"
+	},
+	"author": "Kuy Mainwaring",
+	"license": "CC-SA-BY-3.0"
+}
