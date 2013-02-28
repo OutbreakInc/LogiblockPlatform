@@ -2,7 +2,6 @@
 var fs = require("fs");
 var path = require("path");
 var childProcess = require("child_process");
-var http = require("http");
 var moduleverse = require("moduleverse");
 
 ////////////////////////////////////////////////////////////////
