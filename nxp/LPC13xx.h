@@ -898,8 +898,71 @@
 	REGISTER	UARTDivisorLow =			REGISTER_ADDRESS(0x40008000);	//accessible only when DLAB = 1
 	REGISTER	UARTDivisorHigh =			REGISTER_ADDRESS(0x40008004);	// "
 	REGISTER	UARTInterruptsActive =		REGISTER_ADDRESS(0x40008008);	//read-only
+		enum UARTInterruptsActive
+		{
+			UARTInterruptsActive_ReceivedData		=	(0x01),
+			UARTInterruptsActive_THRE				=	(0x02),
+			UARTInterruptsActive_RxLineStatus		=	(0x04),
+			
+			UARTInterruptsActive_AutoBaudComplete	=	(0x100),
+			UARTInterruptsActive_AutoBaudTimeout	=	(0x200),
+		};
 	REGISTER	UARTFIFOControl =			REGISTER_ADDRESS(0x40008008);	//write-only
-	//@@not done
+		enum UARTFIFOControl
+		{
+			UARTFIFOControl_Enable					=	(0x01),		
+			UARTFIFOControl_RxReset					=	(0x02),		//self-clearing bit
+			UARTFIFOControl_TxReset					=	(0x04),		//self-clearing bit
+			
+			UARTFIFOControl_RxInterrupt1Char		=	(0x00 << 6),
+			UARTFIFOControl_RxInterrupt4Chars		=	(0x01 << 6),
+			UARTFIFOControl_RxInterrupt8Chars		=	(0x02 << 6),
+			UARTFIFOControl_RxInterrupt14Chars		=	(0x03 << 6),
+		};
+	REGISTER	UARTLineControl =			REGISTER_ADDRESS(0x4000800C);
+		enum UARTLineControl
+		{
+			UARTLineControl_5BitChars				=	(0x00),
+			UARTLineControl_6BitChars				=	(0x01),
+			UARTLineControl_7BitChars				=	(0x02),
+			UARTLineControl_8BitChars				=	(0x03),
+			
+			UARTLineControl_UseStopBit				=	(0x04),
+			UARTLineControl_UseParity				=	(0x08),
+			
+			UARTLineControl_UseOddParity			=	(0x00 << 4),
+			UARTLineControl_UseEvenParity			=	(0x01 << 4),
+			UARTLineControl_Constant1Parity			=	(0x02 << 4),
+			UARTLineControl_Constant0Parity			=	(0x03 << 4),
+			
+			UARTLineControl_BreakControlEnable		=	(0x40),
+			UARTLineControl_DivisorLatch			=	(0x80),
+		};
+	REGISTER	UARTModemControl =			REGISTER_ADDRESS(0x40008010);
+		enum UARTModemControl
+		{
+			UARTModemControl_DTRPinState			=	(0x01),
+			UARTModemControl_RTSPinState			=	(0x02),
+			UARTModemControl_LoopbackMode			=	(0x04),
+			UARTModemControl_RTSEnable				=	(0x40),
+			UARTModemControl_CTSEnable				=	(0x80),
+		};
+	REGISTER	UARTLineStatus =			REGISTER_ADDRESS(0x40008014);
+		enum UARTLineStatus
+		{
+			UARTLineStatus_ReceiverDataReady		=	(0x01),
+			UARTLineStatus_OverrunError				=	(0x02),
+			UARTLineStatus_ParityError				=	(0x04),
+			UARTLineStatus_FramingError				=	(0x08),
+			UARTLineStatus_BreakInterrupt			=	(0x10),
+			UARTLineStatus_TxHoldingRegisterEmpty	=	(0x20),
+			UARTLineStatus_TransmitterEmpty			=	(0x40),
+			UARTLineStatus_RxFIFOEmpty				=	(0x80),
+		};
+	REGISTER	UARTModemStatus =			REGISTER_ADDRESS(0x40008018);	//read-only
+	REGISTER	UARTAutoBaudControl =		REGISTER_ADDRESS(0x40008020);
+	REGISTER	UARTFractionalDivider =		REGISTER_ADDRESS(0x40008028);
+	REGISTER	UARTTransmitEnabled =		REGISTER_ADDRESS(0x40008030);
 	
 	
 	//Timer 0, 16-bit
@@ -966,7 +1029,9 @@
 	REGISTER	ADCControl =				REGISTER_ADDRESS(0x4001C000);
 		enum ADCControl
 		{
-			ADCControl_BurstModeBitmask =			(0xFF),
+			ADCControl_ChannelSelectBitmask =		(0xFF),	//applies to manual (one at a time) mode
+			
+			ADCControl_BurstModeBitmask =			(0xFF),	//applies to automatic (bust, round-robin) mode only
 			
 			//This must be chosen so that PCLK / (ADCControl_ADCClockDividerBitmask + 1) is close to but less than 4.5MHz.
 			//  The clock rate may be decreased to better sample high-impedance analog sources.
@@ -988,6 +1053,7 @@
 			ADCControl_3BitSample_4Clocks =			(0x07 << 17),
 
 			//Note: one ADC sample on one channel takes 2.44us
+			ADCControl_StartStopMask =				(0x07 << 24),
 			ADCControl_Stop	=						(0x00 << 24),
 			ADCControl_StartNow	=					(0x01 << 24),
 			
@@ -1015,11 +1081,98 @@
 	REGISTER	ADC7Data =					REGISTER_ADDRESS(0x4001C02C);
 
 	REGISTER	ADCStatus =					REGISTER_ADDRESS(0x4001C030);
+		enum ADCStatus
+		{
+			ADCStatus_ADC0Done =			(0x01),
+			ADCStatus_ADC1Done =			(0x02),
+			ADCStatus_ADC2Done =			(0x04),
+			ADCStatus_ADC3Done =			(0x08),
+			ADCStatus_ADC4Done =			(0x10),
+			ADCStatus_ADC5Done =			(0x20),
+			ADCStatus_ADC6Done =			(0x40),
+			ADCStatus_ADC7Done =			(0x80),
+			
+			ADCStatus_ADC0Overrun =			(0x01 << 8),
+			ADCStatus_ADC1Overrun =			(0x02 << 8),
+			ADCStatus_ADC2Overrun =			(0x04 << 8),
+			ADCStatus_ADC3Overrun =			(0x08 << 8),
+			ADCStatus_ADC4Overrun =			(0x10 << 8),
+			ADCStatus_ADC5Overrun =			(0x20 << 8),
+			ADCStatus_ADC6Overrun =			(0x40 << 8),
+			ADCStatus_ADC7Overrun =			(0x80 << 8),
+			
+			ADCStatus_InterruptRaised =		(0x01 << 16),
+		};
 	
 
 	//Write 1 to set interrupts on InterruptSet, write 1 to clear interrupts on InterruptClear
 	REGISTER	InterruptEnableSet0 =		REGISTER_ADDRESS(0xE000E100);
+		enum Interrupt0
+		{
+			Interrupt1_PIO0_0 =		(1 << 0),
+			Interrupt1_PIO0_1 =		(1 << 0),
+			Interrupt1_PIO0_2 =		(1 << 0),
+			Interrupt1_PIO0_3 =		(1 << 0),
+			Interrupt1_PIO0_4 =		(1 << 0),
+			Interrupt1_PIO0_5 =		(1 << 0),
+			Interrupt1_PIO0_6 =		(1 << 0),
+			Interrupt1_PIO0_7 =		(1 << 0),
+			Interrupt1_PIO0_8 =		(1 << 0),
+			Interrupt1_PIO0_9 =		(1 << 0),
+			Interrupt1_PIO0_10 =	(1 << 0),
+			Interrupt1_PIO0_11 =	(1 << 11),
+			Interrupt1_PIO1_0 =		(1 << 12),
+			Interrupt1_PIO1_1 =		(1 << 13),
+			Interrupt1_PIO1_2 =		(1 << 14),
+			Interrupt1_PIO1_3 =		(1 << 15),
+			Interrupt1_PIO1_4 =		(1 << 16),
+			Interrupt1_PIO1_5 =		(1 << 17),
+			Interrupt1_PIO1_6 =		(1 << 18),
+			Interrupt1_PIO1_7 =		(1 << 19),
+			Interrupt1_PIO1_8 =		(1 << 20),
+			Interrupt1_PIO1_9 =		(1 << 21),
+			Interrupt1_PIO1_10 =	(1 << 22),
+			Interrupt1_PIO1_11 =	(1 << 23),
+			Interrupt1_PIO2_0 =		(1 << 24),
+			Interrupt1_PIO2_1 =		(1 << 25),
+			Interrupt1_PIO2_2 =		(1 << 26),
+			Interrupt1_PIO2_3 =		(1 << 27),
+			Interrupt1_PIO2_4 =		(1 << 28),
+			Interrupt1_PIO2_5 =		(1 << 29),
+			Interrupt1_PIO2_6 =		(1 << 30),
+			Interrupt1_PIO2_7 =		(1 << 31),
+		};
 	REGISTER	InterruptEnableSet1 =		REGISTER_ADDRESS(0xE000E104);
+		enum Interrupt1
+		{
+			Interrupt1_PIO2_8 =		(1 << 0),
+			Interrupt1_PIO2_9 =		(1 << 1),
+			Interrupt1_PIO2_10 =	(1 << 2),
+			Interrupt1_PIO2_11 =	(1 << 3),
+			Interrupt1_PIO3_0 =		(1 << 4),
+			Interrupt1_PIO3_1 =		(1 << 5),
+			Interrupt1_PIO3_2 =		(1 << 6),
+			Interrupt1_PIO3_3 =		(1 << 7),
+			Interrupt1_I2C =		(1 << 8),
+			Interrupt1_Timer0 =		(1 << 9),
+			Interrupt1_Timer1 =		(1 << 10),
+			Interrupt1_Timer2 =		(1 << 11),
+			Interrupt1_Timer3 =		(1 << 12),
+			Interrupt1_SPI0 =		(1 << 13),
+			Interrupt1_UART =		(1 << 14),
+			Interrupt1_USB =		(1 << 15),
+			Interrupt1_USBFast =	(1 << 16),
+			Interrupt1_ADC =		(1 << 17),
+			Interrupt1_Watchdog =	(1 << 18),
+			Interrupt1_BrownOut =	(1 << 19),
+			
+			Interrupt1_GPIO3 =		(1 << 21),
+			Interrupt1_GPIO2 =		(1 << 22),
+			Interrupt1_GPIO1 =		(1 << 23),
+			Interrupt1_GPIO0 =		(1 << 24),
+			Interrupt1_SPI1 =		(1 << 25),
+		};
+				
 	REGISTER	InterruptEnableClear0 =		REGISTER_ADDRESS(0xE000E180);
 	REGISTER	InterruptEnableClear1 =		REGISTER_ADDRESS(0xE000E184);
 	REGISTER	InterruptSetPending0 =		REGISTER_ADDRESS(0xE000E200);
