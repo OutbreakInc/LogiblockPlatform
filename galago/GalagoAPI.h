@@ -152,13 +152,32 @@ public:
 	class UART
 	{
 	public:
+		enum
+		{
+			CharsAre5Bit			=	(0x00),
+			CharsAre6Bit			=	(0x01),
+			CharsAre7Bit			=	(0x02),
+			CharsAre8Bit			=	(0x03),
+			
+			NoStopBit				=	(0x00),
+			UseStopBit				=	(0x04),
+			
+			NoParity				=	(0x08),
+			UseOddParity			=	(0x08 | (0x00 << 4)),
+			UseEvenParity			=	(0x08 | (0x01 << 4)),
+			UseConstant1Parity		=	(0x08 | (0x02 << 4)),
+			UseConstant0Parity		=	(0x08 | (0x03 << 4)),
+		};
+		typedef int		Mode;
+		
 		typedef enum
 		{
 			Event_BytesReceived,
 			Event_ErrorReceived,
 		} Event;
 		
-		void			start(int baudRate = 38400);
+		void			start(int baudRate = 9600, Mode mode = (CharsAre8Bit | NoParity | UseStopBit));
+		void			startWithExplicitRatio(int divider, int fracN, int fracD, Mode mode);
 		inline void		stop(void)	{start(0);}
 		
 		typedef void	(*UARTCallback)(void* receiver, UART& uart, Event event, Buffer bytes);
@@ -168,16 +187,16 @@ public:
 
 		inline int		read(char* s, int length, bool readAll = false)	{read((byte*)s, length, readAll);}
 		int				read(byte* s, int length, bool readAll = false);
-		int				read(unsigned short* s, int length, bool readAll = false);
+		//int				read(unsigned short* s, int length, bool readAll = false);
 
-		inline void		write(char c, int length = 1, bool writeAll = true)		{write((unsigned short)c, length, writeAll);}
-		inline void		write(byte b, int length = 1, bool writeAll = true)		{write((unsigned short)b, length, writeAll);}
-		inline void		write(short h, int length = 1, bool writeAll = true)	{write((unsigned short)h, length, writeAll);}
-		void			write(unsigned short h, int length = 1, bool writeAll = true);
+		inline int		write(char c, bool writeAll = true)		{return(write((byte)c, writeAll));}
+		inline int		write(byte b, bool writeAll = true)		{return(write((byte)b, writeAll));}
+		inline int		write(short h, bool writeAll = true)	{return(write((byte)h, writeAll));}
+		int				write(byte b, bool writeAll = true);
 
-		inline void		write(char const* s, int length = -1, bool writeAll = true)	{write((byte const*)s, length, writeAll);}
-		void			write(byte const* s, int length = -1, bool writeAll = true);
-		void			write(unsigned short const* s, int length, byte* bytesReadBack = 0);
+		inline int		write(char const* s, int length = -1, bool writeAll = true)	{return(write((byte const*)s, length, writeAll));}
+		int				write(byte const* s, int length = -1, bool writeAll = true);
+		//int				write(unsigned short const* s, int length, byte* bytesReadBack = 0, bool writeAll = true);
 	};
 
 	Pin				P0;
@@ -224,7 +243,9 @@ public:
 	void			sleep(void);
 	void			delay(int microseconds);
 	void			addTimedTask(int period, void (*task)(void*), void* ref = 0);
-
+	
+	createTimer();
+	
 					System(void);
 };
 
