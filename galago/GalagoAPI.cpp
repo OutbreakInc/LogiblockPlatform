@@ -37,6 +37,7 @@ void			System::sleep(void)
 
 }
 
+//@@sleep until a certain time occurs or burn time?
 void			System::delay(int microseconds)
 {
 
@@ -346,6 +347,7 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 	}
 }
 
+////////////////////////////////////////////////////////////////
 
 void			IO::SPI::start(int bitRate, Role role, Mode mode)
 {
@@ -426,3 +428,122 @@ void			IO::SPI::write(unsigned short const* s, int length, byte* bytesReadBack)
 	}
 }
 
+////////////////////////////////////////////////////////////////
+
+void		IO::UART::start(int baudRate, Mode mode)
+{
+	if(baudRate > 0)
+	{
+		int q = System::getCoreFrequency() / (16 * baudRate);
+		int n = 0;
+		int d = 1;
+		
+		IO::UART::startWithExplicitRatio(q, n, d, mode);
+	}
+	else	//else shut down the UART
+	{
+		*InterruptEnableClear1 |= Interrupt1_UART;	//disable UART interrupt
+		
+		*UARTFIFOControl = (UARTFIFOControl_RxReset | UARTFIFOControl_TxReset);	//disable and reset
+		
+		*ClockControl &= ~ClockControl_UART;
+	}
+}
+void		IO::UART::startWithExplicitRatio(int divider, int fracN, int fracD, Mode mode)
+{
+	*ClockControl |= ClockControl_UART;
+	*UARTClockDivider = 1;
+	
+	*UARTLineControl = (mode & 0xFF) | UARTLineControl_DivisorLatch;	//apply mode and enter DLAB state
+	
+	*UARTDivisorLow = divider & 0xFF;		//write divisor bytes
+	*UARTDivisorHigh = (divider >> 8) & 0xFF;
+	
+	*UARTLineControl &= ~UARTLineControl_DivisorLatch;	//exit DLAB state
+	*UARTModemControl = (mode >> 8) & 0xC7;
+	
+	*UARTFIFOControl |= (UARTFIFOControl_Enable | UARTFIFOControl_RxReset | UARTFIFOControl_TxReset | UARTFIFOControl_RxInterrupt1Char);
+	
+	(void)*UARTLineStatus;	//clear status
+	
+	*InterruptEnableSet1 |= Interrupt1_UART; //set up UART interrupt
+}
+
+int		IO::UART::read(byte* s, int length, bool readAll)
+{
+	int c = 0;
+	if(readAll)
+	{
+		while(length > 0)
+		{
+			//make sure there's a new char
+			while(!(*UARTLineStatus & UARTLineStatus_TxHoldingRegisterEmpty));
+			*UARTData = *s++;
+			length--;
+			c++;
+		}
+	}
+	else
+	{
+		//push chars only while there's room.
+		while((length > 0) & (*UARTLineStatus & UARTLineStatus_TxHoldingRegisterEmpty))
+		{
+			*UARTData = *s++;
+			length--;
+			c++;
+		}
+	}
+	return(c);
+}
+int		IO::UART::read(byte* s, int length, bool readAll)
+{
+	int c = 0;
+	if(readAll)
+	{
+		while(length > 0)
+		{
+			while(!(*UARTLineStatus & UARTLineStatus_ReceiverDataReady));	//spin for more data
+			*s++ = *UARTData;
+			length--;
+			c++;
+		}
+	}
+	else
+	{
+		int c = 0;	//only read while chars are available
+		while((length > 0) && (*UARTLineStatus & UARTLineStatus_ReceiverDataReady))
+		{
+			*s++ = *UARTData;
+			length--;
+			c++;
+		}
+	}
+	return(c);
+}
+
+int		IO::UART::write(byte const* s, int length, bool writeAll)
+{
+	int c = 0;
+	if(writeAll)
+	{
+		while(length > 0)
+		{
+			//make sure there's room for this char
+			while(!(*UARTLineStatus & UARTLineStatus_TxHoldingRegisterEmpty));
+			*UARTData = *s++;
+			length--;
+			c++;
+		}
+	}
+	else
+	{
+		//push chars only while there's room.
+		while((length > 0) & (*UARTLineStatus & UARTLineStatus_TxHoldingRegisterEmpty))
+		{
+			*UARTData = *s++;
+			length--;
+			c++;
+		}
+	}
+	return(c);
+}
