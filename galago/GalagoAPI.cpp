@@ -1,6 +1,7 @@
 #include "GalagoAPI.h"
 #include "LPC13xx.h"
 
+using namespace LPC1300;
 using namespace Galago;
 
 				System::System(void)
@@ -18,34 +19,44 @@ using namespace Galago;
 
 unsigned int	System::getCoreFrequency(void) const
 {
-	switch(*LPC1300::MainClockSource)
+	switch(*MainClockSource)
 	{
-	case LPC1300::MainClockSource_InternalCrystal:
+	case MainClockSource_InternalCrystal:
 		return(12e6);
-	case LPC1300::MainClockSource_PLLInput:
+	case MainClockSource_PLLInput:
 		return(0);
-	case LPC1300::MainClockSource_WDTOscillator:
+	case MainClockSource_WDTOscillator:
 		return(0);
-	case LPC1300::MainClockSource_PLLOutput:
+	case MainClockSource_PLLOutput:
 		return(0);
 	}
 	return(0);
 }
 
-void			System::sleep(void)
+void			System::sleep(void) const
 {
 
 }
 
 //@@sleep until a certain time occurs or burn time?
-void			System::delay(int microseconds)
-{
-
-}
-
-void			System::addTimedTask(int period, void (*task)(void*), void* ref)
+void			System::delay(int microseconds) const
 {
 	
+}
+
+int				System::addTimedTask(int period, bool repeat, void (*task)(void*), void* ref)
+{
+	return(0);
+}
+
+bool			System::removeTimedTask(int id)
+{
+	return(false);
+}
+
+bool			System::removeTimedTask(void (*task)(void*), void* ref)
+{
+	return(false);
 }
 
 //IO Pins
@@ -98,7 +109,7 @@ int				IO::Pin::read(void)
 	//if((v & 0xFF0000) == (IO::Pin::AnalogInput << 16))
 	if((v >> 16) == IO::Pin::AnalogInput)
 	{
-		*LPC1300::ADCControl = (*LPC1300::ADCControl & ~0xFF00) | LPC1300::ADCControl_StartNow | analogChannel(v);
+		*ADCControl = (*ADCControl & ~0xFF00) | ADCControl_StartNow | analogChannel(v);
 	}
 	else
 		return(*gpioAddress(v) != 0);
@@ -261,7 +272,7 @@ unsigned int const kIOPinInitialState[26] =
 
 				IO::IO(void)
 {
-	*LPC1300::IOConfigSCKLocation = 2;	//put SCK0 on pin pio0.6
+	*IOConfigSCKLocation = 2;	//put SCK0 on pin pio0.6
 
 	Pin* p = &P0;
 	for(int i = 0; i < 26; i++)
@@ -355,23 +366,23 @@ void			IO::SPI::start(int bitRate, Role role, Mode mode)
 	Galago::IO.MOSI.setMode(IO::Pin::SPI);
 	Galago::IO.MISO.setMode(IO::Pin::SPI);
 
-	*LPC1300::PeripheralnReset &= ~LPC1300::PeripheralnReset_SPI0;	//assert reset
+	*PeripheralnReset &= ~PeripheralnReset_SPI0;	//assert reset
 	
 	if(bitRate > 0)
 	{
-		*LPC1300::ClockControl |= LPC1300::ClockControl_SPI0;	//enable SPI0 clock
-		*LPC1300::SPI0ClockPrescaler = 1;
+		*ClockControl |= ClockControl_SPI0;	//enable SPI0 clock
+		*SPI0ClockPrescaler = 1;
 
 		//@@solve this to get as close as possible to x in: bitRate = Fahb/2/x
-		*LPC1300::SPI0ClockDivider = 6000000UL / bitRate;
+		*SPI0ClockDivider = 6000000UL / bitRate;
 
-		*LPC1300::SPI0Control0 = LPC1300::SPI0Control0_8BitTransfer | LPC1300::SPI0Control0_FrameFormat_SPI | LPC1300::SPI0Control0_SPIMode0;
-		*LPC1300::SPI0Control1 = LPC1300::SPI0Control1_Enable;
+		*SPI0Control0 = SPI0Control0_8BitTransfer | SPI0Control0_FrameFormat_SPI | SPI0Control0_SPIMode0;
+		*SPI0Control1 = SPI0Control1_Enable;
 
-		*LPC1300::PeripheralnReset |= LPC1300::PeripheralnReset_SPI0;	//deassert reset
+		*PeripheralnReset |= PeripheralnReset_SPI0;	//deassert reset
 	}
 	else
-		*LPC1300::ClockControl &= ~LPC1300::ClockControl_SPI0;	//disable SPI0 clock
+		*ClockControl &= ~ClockControl_SPI0;	//disable SPI0 clock
 }
 
 
@@ -379,10 +390,10 @@ void			IO::SPI::read(int length, byte* bytesReadBack, unsigned short writeChar)
 {
 	while(length-- > 0)
 	{
-		while(!(*LPC1300::SPI0Status & LPC1300::SPI0Status_ReceiveFIFONotEmpty));	//spinwait until the hardware can supply at least one datum
+		while(!(*SPI0Status & SPI0Status_ReceiveFIFONotEmpty));	//spinwait until the hardware can supply at least one datum
 		
-		*LPC1300::SPI0Data = (unsigned int)writeChar;	//append the character
-		*bytesReadBack++ = (byte)*LPC1300::SPI0Data;
+		*SPI0Data = (unsigned int)writeChar;	//append the character
+		*bytesReadBack++ = (byte)*SPI0Data;
 	}
 }
 
@@ -390,10 +401,10 @@ void			IO::SPI::read(int length, unsigned short* bytesReadBack, unsigned short w
 {
 	while(length-- > 0)
 	{
-		while(!(*LPC1300::SPI0Status & LPC1300::SPI0Status_ReceiveFIFONotEmpty));	//spinwait until the hardware can supply at least one datum
+		while(!(*SPI0Status & SPI0Status_ReceiveFIFONotEmpty));	//spinwait until the hardware can supply at least one datum
 		
-		*LPC1300::SPI0Data = (unsigned int)writeChar;	//append the character
-		*bytesReadBack++ = (unsigned short)*LPC1300::SPI0Data;
+		*SPI0Data = (unsigned int)writeChar;	//append the character
+		*bytesReadBack++ = (unsigned short)*SPI0Data;
 	}
 }
 
@@ -402,8 +413,8 @@ void			IO::SPI::write(unsigned short h, int length)
 {
 	while(length-- > 0)
 	{
-		while(!(*LPC1300::SPI0Status & LPC1300::SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
-		*LPC1300::SPI0Data = (unsigned int)h;	//append the same character
+		while(!(*SPI0Status & SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
+		*SPI0Data = (unsigned int)h;	//append the same character
 	}
 }
 
@@ -411,20 +422,20 @@ void			IO::SPI::write(byte const* s, int length, byte* bytesReadBack)
 {
 	while(length-- > 0)
 	{
-		while(!(*LPC1300::SPI0Status & LPC1300::SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
-		*LPC1300::SPI0Data = (unsigned int)*s++;	//append the next character
+		while(!(*SPI0Status & SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
+		*SPI0Data = (unsigned int)*s++;	//append the next character
 		if(bytesReadBack != 0)
-			*bytesReadBack++ = (byte)*LPC1300::SPI0Data;
+			*bytesReadBack++ = (byte)*SPI0Data;
 	}
 }
 void			IO::SPI::write(unsigned short const* s, int length, byte* bytesReadBack)
 {
 	while(length-- > 0)
 	{
-		while(!(*LPC1300::SPI0Status & LPC1300::SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
-		*LPC1300::SPI0Data = (unsigned int)*s++;	//append the next character
+		while(!(*SPI0Status & SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
+		*SPI0Data = (unsigned int)*s++;	//append the next character
 		if(bytesReadBack != 0)
-			*bytesReadBack++ = (byte)*LPC1300::SPI0Data;
+			*bytesReadBack++ = (byte)*SPI0Data;
 	}
 }
 
@@ -434,7 +445,7 @@ void		IO::UART::start(int baudRate, Mode mode)
 {
 	if(baudRate > 0)
 	{
-		int q = System::getCoreFrequency() / (16 * baudRate);
+		int q = System.getCoreFrequency() / (16 * baudRate);
 		int n = 0;
 		int d = 1;
 		
@@ -489,31 +500,6 @@ int		IO::UART::read(byte* s, int length, bool readAll)
 		while((length > 0) & (*UARTLineStatus & UARTLineStatus_TxHoldingRegisterEmpty))
 		{
 			*UARTData = *s++;
-			length--;
-			c++;
-		}
-	}
-	return(c);
-}
-int		IO::UART::read(byte* s, int length, bool readAll)
-{
-	int c = 0;
-	if(readAll)
-	{
-		while(length > 0)
-		{
-			while(!(*UARTLineStatus & UARTLineStatus_ReceiverDataReady));	//spin for more data
-			*s++ = *UARTData;
-			length--;
-			c++;
-		}
-	}
-	else
-	{
-		int c = 0;	//only read while chars are available
-		while((length > 0) && (*UARTLineStatus & UARTLineStatus_ReceiverDataReady))
-		{
-			*s++ = *UARTData;
 			length--;
 			c++;
 		}

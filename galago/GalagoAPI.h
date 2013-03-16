@@ -187,16 +187,13 @@ public:
 
 		inline int		read(char* s, int length, bool readAll = false)	{read((byte*)s, length, readAll);}
 		int				read(byte* s, int length, bool readAll = false);
-		//int				read(unsigned short* s, int length, bool readAll = false);
 
 		inline int		write(char c, bool writeAll = true)		{return(write((byte)c, writeAll));}
-		inline int		write(byte b, bool writeAll = true)		{return(write((byte)b, writeAll));}
 		inline int		write(short h, bool writeAll = true)	{return(write((byte)h, writeAll));}
 		int				write(byte b, bool writeAll = true);
 
 		inline int		write(char const* s, int length = -1, bool writeAll = true)	{return(write((byte const*)s, length, writeAll));}
 		int				write(byte const* s, int length = -1, bool writeAll = true);
-		//int				write(unsigned short const* s, int length, byte* bytesReadBack = 0, bool writeAll = true);
 	};
 
 	Pin				P0;
@@ -240,12 +237,14 @@ class System
 {
 public:
 	unsigned int	getCoreFrequency(void) const;
-	void			sleep(void);
-	void			delay(int microseconds);
-	void			addTimedTask(int period, void (*task)(void*), void* ref = 0);
+	unsigned int	setCoreFrequency(unsigned int kHz);
 	
-	createTimer();
-	
+	void			sleep(void) const;
+	void			delay(int microseconds) const;
+	int				addTimedTask(int period, bool repeat, void (*task)(void*), void* ref = 0);
+	bool			removeTimedTask(int id);
+	bool			removeTimedTask(void (*task)(void*), void* ref = 0);
+					
 					System(void);
 };
 
