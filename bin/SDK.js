@@ -210,8 +210,8 @@ Toolchain.prototype =
 		}.bind(this));
 		compiler.on("exit", function(returnCode)
 		{
-			console.log("stdout: ", stdout);
-			console.log("stderr: ", stderr);
+			//console.log("stdout: ", stdout);
+			//console.log("stderr: ", stderr);
 
 			//for each line of output, see if it matches the way GCC formats an error
 			stderr.split("\n").forEach(function(line)
@@ -227,7 +227,20 @@ Toolchain.prototype =
 				
 				var m = line.match(/^(.*?):(\d+):(\d*):{0,1}(.*)/);
 				if(m)
-					compileErrors.push({raw: line, file: m[1], line: m[2], charIndex: m[3] || 0, err: m[4].trim()});
+				{
+					var compileError = {raw: line, file: m[1], line: m[2], charIndex: m[3] || 0, err: m[4].trim()};
+					var last = (compileErrors.length > 0) && compileErrors[compileErrors.length - 1];
+					if(		last && (last.file == compileError.file) && (last.line == compileError.line)
+							&& (last.charIndex > 0) && (last.charIndex == compileError.charIndex)
+						)
+					{
+						//merge into last
+						last.raw += "\n" + compileError.raw;
+						last.err += "\n" + compileError.err;
+					}
+					else
+						compileErrors.push(compileError);	//add new
+				}
 			});
 			
 			//invoke callback with no error
@@ -513,9 +526,14 @@ if(require.main == module)
 			platform: path.resolve(__dirname, ".."),
 			module: Config.baseDir(),
 			output: projectBase,	//@@for now
-		}, function()
+		}, function(err, outputFile, result)
 		{
-			console.log("compile() result: ", arguments);
+			//console.log("compile() result: ", arguments);
+
+			for(var i = 0; i < result.compileErrors.length; i++)
+			{
+				console.log(result.compileErrors[i]);
+			}
 		});
 
 	}).fail(function(error)
