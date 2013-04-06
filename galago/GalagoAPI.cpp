@@ -4,8 +4,15 @@
 using namespace LPC1300;
 using namespace Galago;
 
+//@@temp, move to link file
+static unsigned int* const	__heapstart = (unsigned int* const)(MEMORY_SRAM_BOTTOM);
+static unsigned int* const	__heapend = (unsigned int* const)(MEMORY_SRAM_TOP - 512);	//assume 512-byte stack
+
 				System::System(void)
 {
+	//initialize heap
+	*(unsigned int*)__heapstart = ((__heapend - __heapstart) >> 2);
+	
 	//@@ if the core reset due to a WDT interrupt, store the external clock kHz as "no crystal", else:
 		//@@ set up timer2 (32bit) to count up 1:1 with the core
 		//@@ set watchdog to a known interval: WatchdogControl_Frequency_4_0MHz * 4 * 1000
@@ -32,6 +39,78 @@ unsigned int	System::getCoreFrequency(void) const
 	}
 	return(0);
 }
+
+static const unsigned int kHeapFlagMask = 0xFF000000;
+static const unsigned int kHeapAllocated = 0x80000000;
+
+//static
+void*			System::alloc(size_t size)
+{
+	if(size == 0)	return(0);	//@@throw
+	
+	unsigned int* m = (unsigned int*)__heapstart;
+	
+	//allocations are (4 + size) bytes, rounded up to the next 4-byte boundary
+	unsigned int s = (unsigned int)((size + 7) >> 2);
+	
+	while(m < __heapend)
+	{
+		unsigned int bs = *m & kHeapFlagMask;
+		//look for an unallocated block big enough to fit this allocation
+		if(!(*m & kHeapAllocated) && (s < bs))
+		{
+			if((bs - s) > 1)		//if there's any meaningful remainder,
+				m[s] = (bs - s);	//	mark the remainder as free
+			else
+				s = bs;	//expand allocation
+			
+			*m = s | kHeapAllocated;	//allocate
+			
+			for(int i = 1; i < s; i++)	//zero memory
+				m[i] = 0;
+			
+			return(m + 1);
+		}
+		m += bs;
+	}
+	return(0);	//@@throw
+}
+
+//static
+void			System::free(void* allocation)
+{
+	unsigned int* a = (unsigned int*)allocation;
+	
+	if((a < __heapstart) || (a >= __heapend) || !(a[-1] & kHeapAllocated))
+		return;	//@@throw
+	
+	a--;	//unwrap
+	*a &= ~kHeapAllocated;	//free block
+
+	unsigned int cbs = (*a & ~kHeapFlagMask);	//current block size
+	
+	for(int i = 1; i < cbs; i++)	//mark memory as free
+		a[i] = 0xfeeefeee;
+	
+	//defragment heap
+	unsigned int* n = a + cbs;				//next block
+	if(!(*n & kHeapAllocated))						//if the next block is free,
+		cbs += (*n & ~kHeapFlagMask);				//	account for it when freeing
+	
+	for(unsigned int* p = (unsigned int*)__heapstart; p < a;)
+	{
+		unsigned int pbs = *p & ~kHeapFlagMask;
+		if(((p + pbs) == a) && !(*p & kHeapAllocated))	//predecessor is free
+		{
+			a = p;
+			cbs += pbs;
+		}
+		p += pbs;
+	}
+	
+	*a = cbs;	//merge free blocks if contiguous
+}
+
 
 void			System::sleep(void) const
 {
@@ -532,4 +611,131 @@ int		IO::UART::write(byte const* s, int length, bool writeAll)
 		}
 	}
 	return(c);
+}
+
+////////////////////////////////////////////////////////////////
+
+struct I2CCore
+{
+	struct I2CPacket
+	{
+		I2CPacket*		next;
+		unsigned int	length;
+		unsigned char	data[1];
+	};
+	
+	void			processEvent(void)
+	{
+		int status = *I2CStatus;
+		switch(status)
+		{
+		case 0x08:	//start bit sent
+		case 0x10:	//repeated start
+			*I2CData = currentPacket->data[0];
+			*I2CControlClear = I2CControlSet_StartCondition;
+			break;
+			
+		case 0x18:	//write address ACKed, ready to write
+			*I2CData = currentPacket->data[0];
+			break;
+			
+		case 0x20:	//write address NACKed, stop
+			*I2CControlSet = I2CControlSet_StopCondition;
+			
+			//@@abort packet
+			break;
+			
+		case 0x48:	//read address NACKed, stop
+			*I2CControlSet = I2CControlSet_StopCondition;
+			
+			//@@abort packet
+			break;
+			
+		case 0x40:	//read address ACKed, ready to read
+			if(currentPacket->length == 1)	*I2CControlClear = I2CControlSet_Ack;
+			
+			break;
+		
+		case 0x28:	//byte sent, ACK received
+			if(currentPacket->length < currentPacket->length)
+				*I2CData = currentPacket->data[currentPacket->length++];
+			else
+			{
+				if((currentPacket->next != 0) && (currentPacket->next->data[0] == currentPacket->data[0]))
+					*I2CControlSet = I2CControlSet_StartCondition;
+				else
+					*I2CControlSet = I2CControlSet_StopCondition;
+			}
+			break;
+			
+		case 0x30:	//byte sent, NACK received
+			*I2CControlClear = I2CControlSet_StopCondition;
+			//@@abort
+			break;
+			
+		case 0x50:	//byte received, ACK sent
+			currentPacket->data[currentPacket->length++] = *I2CData;
+			
+			if(currentPacket->length < currentPacket->length)	*I2CControlSet = I2CControlSet_Ack;
+			else								*I2CControlClear = I2CControlSet_Ack;
+			
+			break;
+			
+		case 0x58:	//byte received, NACK sent
+			*I2CControlSet = I2CControlSet_StopCondition;
+			break;
+		
+		case 0x38:	//arbitration loss, abort
+			//boo :-(
+			break;
+		}
+		
+		*I2CControlClear = I2CControlSet_Interrupt;
+	}
+	
+	I2CPacket* currentPacket;
+};
+
+I2CCore I2CCore;
+
+void			IRQ_I2C(void)
+{
+	I2CCore.processEvent();
+}
+
+void	IO::I2C::start(int bitRate, IO::I2C::Role role)
+{
+	*I2CControlClear = 0x6C;	//turn off (clear all bits)
+	*PeripheralnReset &= ~PeripheralnReset_I2C;	//assert reset
+	
+	if(bitRate > 0)
+	{
+		*ClockControl |= ClockControl_I2C;
+		*PeripheralnReset |= PeripheralnReset_I2C;	//deassert reset
+		
+		unsigned int bitHalfPeriod = (System.getCoreFrequency() / bitRate) >> 1;
+		//@@depending on the time-constant of the bus (1 / (pull-up resistance * capacitance)),
+		//  the low-time should be smaller and the high-time should be higher
+		*I2CClockHighTime = bitHalfPeriod;
+		*I2CClockLowTime = bitHalfPeriod;
+		
+		*I2CControlSet = I2CControlSet_EnableI2C;
+		*InterruptEnableSet1 = Interrupt1_I2C;
+	}
+	else
+	{
+		//shut down clock
+		*ClockControl &= ~ClockControl_I2C;
+		*InterruptEnableClear1 = Interrupt1_I2C;
+	}
+}
+
+void	IO::I2C::read(byte address, byte* s, int length, IO::I2C::RepeatedStartSetting repeatedStart)
+{
+	I2CCore::I2CPacket* p = new(length) I2CCore::I2CPacket();
+}
+
+void	IO::I2C::write(byte address, byte const* s, int length, IO::I2C::RepeatedStartSetting repeatedStart)
+{
+	I2CCore::I2CPacket* p = new(length) I2CCore::I2CPacket();
 }

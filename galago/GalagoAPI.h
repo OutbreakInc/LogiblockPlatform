@@ -125,9 +125,9 @@ public:
 
 		void			start(int bitRate = 2000000UL, Role role = Master, Mode mode = Mode0);
 		inline void		stop(void)	{start(0);}
-
+		
 		bool			bytesAvailable(void) const;
-
+		
 		void			read(int length, byte* bytesReadBack, unsigned short writeChar = 0);
 		void			read(int length, unsigned short* bytesReadBack, unsigned short writeChar = 0);
 		
@@ -139,7 +139,7 @@ public:
 		inline void		write(byte b, int length = 1)		{write((unsigned short)b, length);}
 		inline void		write(short h, int length = 1)		{write((unsigned short)h, length);}
 		void			write(unsigned short h, int length = 1);
-
+		
 		inline void		write(char const* s, int length, byte* bytesReadBack = 0)	{write((byte const*)s, length, bytesReadBack);}
 		void			write(byte const* s, int length, byte* bytesReadBack = 0);
 		void			write(unsigned short const* s, int length, byte* bytesReadBack = 0);
@@ -147,6 +147,30 @@ public:
 
 	class I2C
 	{
+	public:
+		typedef enum
+		{
+			Master,
+			Slave,
+		} Role;
+		
+		typedef enum
+		{
+			No,
+			RepeatedStart,
+		} RepeatedStartSetting;
+		
+		void			start(int bitRate = 100000UL, Role role = Master);
+		inline void		stop(void)	{start(0);}
+		
+		//void			begin(byte address);
+		//void			readByte();
+		//void			writeByte();
+		
+		Task			read(byte address, byte* s, int length, RepeatedStartSetting repeatedStart = No);
+		Task			write(byte address, byte const* s, int length, RepeatedStartSetting repeatedStart = No);
+		
+		void			end(void);
 	};
 
 	class UART
@@ -233,18 +257,33 @@ private:
 	unsigned int	v;
 };
 
+class Task
+{
+};
+
 class System
 {
 public:
+	static void*	alloc(size_t size);
+	static void		free(void* allocation);
+	
 	unsigned int	getCoreFrequency(void) const;
 	unsigned int	setCoreFrequency(unsigned int kHz);
 	
 	void			sleep(void) const;
-	void			delay(int microseconds) const;
-	int				addTimedTask(int period, bool repeat, void (*task)(void*), void* ref = 0);
-	bool			removeTimedTask(int id);
-	bool			removeTimedTask(void (*task)(void*), void* ref = 0);
+	
+	Task			delay(int microseconds);
+	
+	bool			cancelTask(Task t);
 					
+	bool			when(void (*completion)(void*), void* context, Task task1, ...);
+	
+	//synchronously wait for one or many tasks to complete.  When all tasks are complete the function will return.
+	//  this method uses the minimum power possible
+	bool			wait(Task task1, ...);
+	
+	Task			all(Task task1, Task task2, ...);
+	
 					System(void);
 };
 
@@ -252,5 +291,26 @@ static IO		IO;
 static System	System;
 
 }	//ns Galago
+
+inline void*		operator new(size_t size)	{return(Galago::System::alloc(size));}
+
+inline void*		operator new[](size_t size)	{return(Galago::System::alloc(size));}
+
+inline void*		operator new[](size_t size, unsigned int extra)	{return(Galago::System::alloc(size + extra));}
+
+inline void*		operator new(size_t size, unsigned int extra)	{return(Galago::System::alloc(size + extra));}
+
+inline void			operator delete(void* p)
+{
+	if(((unsigned int)(size_t)p) & 0x3)	return;	//@@throw
+	Galago::System::free((unsigned int*)p);
+}
+
+inline void			operator delete[](void* p)
+{
+	if(((unsigned int)(size_t)p) & 0x3)	return;	//@@throw
+	Galago::System::free((unsigned int*)p);
+}
+
 
 #endif //defined __GALAGO_H__
