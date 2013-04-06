@@ -1,10 +1,18 @@
 #include "GalagoAPI.h"
 #include "LPC13xx.h"
 
+using namespace LPC1300;
 using namespace Galago;
+
+//@@temp, move to link file
+static unsigned int* const	__heapstart = (unsigned int* const)(MEMORY_SRAM_BOTTOM);
+static unsigned int* const	__heapend = (unsigned int* const)(MEMORY_SRAM_TOP - 512);	//assume 512-byte stack
 
 				System::System(void)
 {
+	//initialize heap
+	*(unsigned int*)__heapstart = ((__heapend - __heapstart) >> 2);
+	
 	//@@ if the core reset due to a WDT interrupt, store the external clock kHz as "no crystal", else:
 		//@@ set up timer2 (32bit) to count up 1:1 with the core
 		//@@ set watchdog to a known interval: WatchdogControl_Frequency_4_0MHz * 4 * 1000
@@ -18,34 +26,116 @@ using namespace Galago;
 
 unsigned int	System::getCoreFrequency(void) const
 {
-	switch(*LPC1300::MainClockSource)
+	switch(*MainClockSource)
 	{
-	case LPC1300::MainClockSource_InternalCrystal:
+	case MainClockSource_InternalCrystal:
 		return(12e6);
-	case LPC1300::MainClockSource_PLLInput:
+	case MainClockSource_PLLInput:
 		return(0);
-	case LPC1300::MainClockSource_WDTOscillator:
+	case MainClockSource_WDTOscillator:
 		return(0);
-	case LPC1300::MainClockSource_PLLOutput:
+	case MainClockSource_PLLOutput:
 		return(0);
 	}
 	return(0);
 }
 
-void			System::sleep(void)
+static const unsigned int kHeapFlagMask = 0xFF000000;
+static const unsigned int kHeapAllocated = 0x80000000;
+
+//static
+void*			System::alloc(size_t size)
+{
+	if(size == 0)	return(0);	//@@throw
+	
+	unsigned int* m = (unsigned int*)__heapstart;
+	
+	//allocations are (4 + size) bytes, rounded up to the next 4-byte boundary
+	unsigned int s = (unsigned int)((size + 7) >> 2);
+	
+	while(m < __heapend)
+	{
+		unsigned int bs = *m & kHeapFlagMask;
+		//look for an unallocated block big enough to fit this allocation
+		if(!(*m & kHeapAllocated) && (s < bs))
+		{
+			if((bs - s) > 1)		//if there's any meaningful remainder,
+				m[s] = (bs - s);	//	mark the remainder as free
+			else
+				s = bs;	//expand allocation
+			
+			*m = s | kHeapAllocated;	//allocate
+			
+			for(int i = 1; i < s; i++)	//zero memory
+				m[i] = 0;
+			
+			return(m + 1);
+		}
+		m += bs;
+	}
+	return(0);	//@@throw
+}
+
+//static
+void			System::free(void* allocation)
+{
+	unsigned int* a = (unsigned int*)allocation;
+	
+	if((a < __heapstart) || (a >= __heapend) || !(a[-1] & kHeapAllocated))
+		return;	//@@throw
+	
+	a--;	//unwrap
+	*a &= ~kHeapAllocated;	//free block
+
+	unsigned int cbs = (*a & ~kHeapFlagMask);	//current block size
+	
+	for(int i = 1; i < cbs; i++)	//mark memory as free
+		a[i] = 0xfeeefeee;
+	
+	//defragment heap
+	unsigned int* n = a + cbs;				//next block
+	if(!(*n & kHeapAllocated))						//if the next block is free,
+		cbs += (*n & ~kHeapFlagMask);				//	account for it when freeing
+	
+	for(unsigned int* p = (unsigned int*)__heapstart; p < a;)
+	{
+		unsigned int pbs = *p & ~kHeapFlagMask;
+		if(((p + pbs) == a) && !(*p & kHeapAllocated))	//predecessor is free
+		{
+			a = p;
+			cbs += pbs;
+		}
+		p += pbs;
+	}
+	
+	*a = cbs;	//merge free blocks if contiguous
+}
+
+
+void			System::sleep(void) const
 {
 
 }
 
 //@@sleep until a certain time occurs or burn time?
-void			System::delay(int microseconds)
-{
-
-}
-
-void			System::addTimedTask(int period, void (*task)(void*), void* ref)
+void			System::delay(int microseconds) const
 {
 	
+}
+
+int				System::addTimedTask(int period, bool repeat, void (*task)(void*), void* ref)
+{
+	return(0);
+}
+
+bool			System::removeTimedTask(int id)
+{
+	return(false);
+}
+
+bool			System::removeTimedTask(void (*task)(void*), void* ref)
+{
+	return(false);
 }
 
 //IO Pins
@@ -98,7 +188,7 @@ int				IO::Pin::read(void)
 	//if((v & 0xFF0000) == (IO::Pin::AnalogInput << 16))
 	if((v >> 16) == IO::Pin::AnalogInput)
 	{
-		*LPC1300::ADCControl = (*LPC1300::ADCControl & ~0xFF00) | LPC1300::ADCControl_StartNow | analogChannel(v);
+		*ADCControl = (*ADCControl & ~0xFF00) | ADCControl_StartNow | analogChannel(v);
 	}
 	else
 		return(*gpioAddress(v) != 0);
@@ -261,7 +351,7 @@ unsigned int const kIOPinInitialState[26] =
 
 				IO::IO(void)
 {
-	*LPC1300::IOConfigSCKLocation = 2;	//put SCK0 on pin pio0.6
+	*IOConfigSCKLocation = 2;	//put SCK0 on pin pio0.6
 
 	Pin* p = &P0;
 	for(int i = 0; i < 26; i++)
@@ -355,23 +445,23 @@ void			IO::SPI::start(int bitRate, Role role, Mode mode)
 	Galago::IO.MOSI.setMode(IO::Pin::SPI);
 	Galago::IO.MISO.setMode(IO::Pin::SPI);
 
-	*LPC1300::PeripheralnReset &= ~LPC1300::PeripheralnReset_SPI0;	//assert reset
+	*PeripheralnReset &= ~PeripheralnReset_SPI0;	//assert reset
 	
 	if(bitRate > 0)
 	{
-		*LPC1300::ClockControl |= LPC1300::ClockControl_SPI0;	//enable SPI0 clock
-		*LPC1300::SPI0ClockPrescaler = 1;
+		*ClockControl |= ClockControl_SPI0;	//enable SPI0 clock
+		*SPI0ClockPrescaler = 1;
 
 		//@@solve this to get as close as possible to x in: bitRate = Fahb/2/x
-		*LPC1300::SPI0ClockDivider = 6000000UL / bitRate;
+		*SPI0ClockDivider = 6000000UL / bitRate;
 
-		*LPC1300::SPI0Control0 = LPC1300::SPI0Control0_8BitTransfer | LPC1300::SPI0Control0_FrameFormat_SPI | LPC1300::SPI0Control0_SPIMode0;
-		*LPC1300::SPI0Control1 = LPC1300::SPI0Control1_Enable;
+		*SPI0Control0 = SPI0Control0_8BitTransfer | SPI0Control0_FrameFormat_SPI | SPI0Control0_SPIMode0;
+		*SPI0Control1 = SPI0Control1_Enable;
 
-		*LPC1300::PeripheralnReset |= LPC1300::PeripheralnReset_SPI0;	//deassert reset
+		*PeripheralnReset |= PeripheralnReset_SPI0;	//deassert reset
 	}
 	else
-		*LPC1300::ClockControl &= ~LPC1300::ClockControl_SPI0;	//disable SPI0 clock
+		*ClockControl &= ~ClockControl_SPI0;	//disable SPI0 clock
 }
 
 
@@ -379,10 +469,10 @@ void			IO::SPI::read(int length, byte* bytesReadBack, unsigned short writeChar)
 {
 	while(length-- > 0)
 	{
-		while(!(*LPC1300::SPI0Status & LPC1300::SPI0Status_ReceiveFIFONotEmpty));	//spinwait until the hardware can supply at least one datum
+		while(!(*SPI0Status & SPI0Status_ReceiveFIFONotEmpty));	//spinwait until the hardware can supply at least one datum
 		
-		*LPC1300::SPI0Data = (unsigned int)writeChar;	//append the character
-		*bytesReadBack++ = (byte)*LPC1300::SPI0Data;
+		*SPI0Data = (unsigned int)writeChar;	//append the character
+		*bytesReadBack++ = (byte)*SPI0Data;
 	}
 }
 
@@ -390,10 +480,10 @@ void			IO::SPI::read(int length, unsigned short* bytesReadBack, unsigned short w
 {
 	while(length-- > 0)
 	{
-		while(!(*LPC1300::SPI0Status & LPC1300::SPI0Status_ReceiveFIFONotEmpty));	//spinwait until the hardware can supply at least one datum
+		while(!(*SPI0Status & SPI0Status_ReceiveFIFONotEmpty));	//spinwait until the hardware can supply at least one datum
 		
-		*LPC1300::SPI0Data = (unsigned int)writeChar;	//append the character
-		*bytesReadBack++ = (unsigned short)*LPC1300::SPI0Data;
+		*SPI0Data = (unsigned int)writeChar;	//append the character
+		*bytesReadBack++ = (unsigned short)*SPI0Data;
 	}
 }
 
@@ -402,8 +492,8 @@ void			IO::SPI::write(unsigned short h, int length)
 {
 	while(length-- > 0)
 	{
-		while(!(*LPC1300::SPI0Status & LPC1300::SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
-		*LPC1300::SPI0Data = (unsigned int)h;	//append the same character
+		while(!(*SPI0Status & SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
+		*SPI0Data = (unsigned int)h;	//append the same character
 	}
 }
 
@@ -411,20 +501,20 @@ void			IO::SPI::write(byte const* s, int length, byte* bytesReadBack)
 {
 	while(length-- > 0)
 	{
-		while(!(*LPC1300::SPI0Status & LPC1300::SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
-		*LPC1300::SPI0Data = (unsigned int)*s++;	//append the next character
+		while(!(*SPI0Status & SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
+		*SPI0Data = (unsigned int)*s++;	//append the next character
 		if(bytesReadBack != 0)
-			*bytesReadBack++ = (byte)*LPC1300::SPI0Data;
+			*bytesReadBack++ = (byte)*SPI0Data;
 	}
 }
 void			IO::SPI::write(unsigned short const* s, int length, byte* bytesReadBack)
 {
 	while(length-- > 0)
 	{
-		while(!(*LPC1300::SPI0Status & LPC1300::SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
-		*LPC1300::SPI0Data = (unsigned int)*s++;	//append the next character
+		while(!(*SPI0Status & SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
+		*SPI0Data = (unsigned int)*s++;	//append the next character
 		if(bytesReadBack != 0)
-			*bytesReadBack++ = (byte)*LPC1300::SPI0Data;
+			*bytesReadBack++ = (byte)*SPI0Data;
 	}
 }
 
@@ -434,7 +524,7 @@ void		IO::UART::start(int baudRate, Mode mode)
 {
 	if(baudRate > 0)
 	{
-		int q = System::getCoreFrequency() / (16 * baudRate);
+		int q = System.getCoreFrequency() / (16 * baudRate);
 		int n = 0;
 		int d = 1;
 		
@@ -495,31 +585,6 @@ int		IO::UART::read(byte* s, int length, bool readAll)
 	}
 	return(c);
 }
-int		IO::UART::read(byte* s, int length, bool readAll)
-{
-	int c = 0;
-	if(readAll)
-	{
-		while(length > 0)
-		{
-			while(!(*UARTLineStatus & UARTLineStatus_ReceiverDataReady));	//spin for more data
-			*s++ = *UARTData;
-			length--;
-			c++;
-		}
-	}
-	else
-	{
-		int c = 0;	//only read while chars are available
-		while((length > 0) && (*UARTLineStatus & UARTLineStatus_ReceiverDataReady))
-		{
-			*s++ = *UARTData;
-			length--;
-			c++;
-		}
-	}
-	return(c);
-}
 
 int		IO::UART::write(byte const* s, int length, bool writeAll)
 {
@@ -546,4 +611,131 @@ int		IO::UART::write(byte const* s, int length, bool writeAll)
 		}
 	}
 	return(c);
+}
+
+////////////////////////////////////////////////////////////////
+
+struct I2CCore
+{
+	struct I2CPacket
+	{
+		I2CPacket*		next;
+		unsigned int	length;
+		unsigned char	data[1];
+	};
+	
+	void			processEvent(void)
+	{
+		int status = *I2CStatus;
+		switch(status)
+		{
+		case 0x08:	//start bit sent
+		case 0x10:	//repeated start
+			*I2CData = currentPacket->data[0];
+			*I2CControlClear = I2CControlSet_StartCondition;
+			break;
+			
+		case 0x18:	//write address ACKed, ready to write
+			*I2CData = currentPacket->data[0];
+			break;
+			
+		case 0x20:	//write address NACKed, stop
+			*I2CControlSet = I2CControlSet_StopCondition;
+			
+			//@@abort packet
+			break;
+			
+		case 0x48:	//read address NACKed, stop
+			*I2CControlSet = I2CControlSet_StopCondition;
+			
+			//@@abort packet
+			break;
+			
+		case 0x40:	//read address ACKed, ready to read
+			if(currentPacket->length == 1)	*I2CControlClear = I2CControlSet_Ack;
+			
+			break;
+		
+		case 0x28:	//byte sent, ACK received
+			if(currentPacket->length < currentPacket->length)
+				*I2CData = currentPacket->data[currentPacket->length++];
+			else
+			{
+				if((currentPacket->next != 0) && (currentPacket->next->data[0] == currentPacket->data[0]))
+					*I2CControlSet = I2CControlSet_StartCondition;
+				else
+					*I2CControlSet = I2CControlSet_StopCondition;
+			}
+			break;
+			
+		case 0x30:	//byte sent, NACK received
+			*I2CControlClear = I2CControlSet_StopCondition;
+			//@@abort
+			break;
+			
+		case 0x50:	//byte received, ACK sent
+			currentPacket->data[currentPacket->length++] = *I2CData;
+			
+			if(currentPacket->length < currentPacket->length)	*I2CControlSet = I2CControlSet_Ack;
+			else								*I2CControlClear = I2CControlSet_Ack;
+			
+			break;
+			
+		case 0x58:	//byte received, NACK sent
+			*I2CControlSet = I2CControlSet_StopCondition;
+			break;
+		
+		case 0x38:	//arbitration loss, abort
+			//boo :-(
+			break;
+		}
+		
+		*I2CControlClear = I2CControlSet_Interrupt;
+	}
+	
+	I2CPacket* currentPacket;
+};
+
+I2CCore I2CCore;
+
+void			IRQ_I2C(void)
+{
+	I2CCore.processEvent();
+}
+
+void	IO::I2C::start(int bitRate, IO::I2C::Role role)
+{
+	*I2CControlClear = 0x6C;	//turn off (clear all bits)
+	*PeripheralnReset &= ~PeripheralnReset_I2C;	//assert reset
+	
+	if(bitRate > 0)
+	{
+		*ClockControl |= ClockControl_I2C;
+		*PeripheralnReset |= PeripheralnReset_I2C;	//deassert reset
+		
+		unsigned int bitHalfPeriod = (System.getCoreFrequency() / bitRate) >> 1;
+		//@@depending on the time-constant of the bus (1 / (pull-up resistance * capacitance)),
+		//  the low-time should be smaller and the high-time should be higher
+		*I2CClockHighTime = bitHalfPeriod;
+		*I2CClockLowTime = bitHalfPeriod;
+		
+		*I2CControlSet = I2CControlSet_EnableI2C;
+		*InterruptEnableSet1 = Interrupt1_I2C;
+	}
+	else
+	{
+		//shut down clock
+		*ClockControl &= ~ClockControl_I2C;
+		*InterruptEnableClear1 = Interrupt1_I2C;
+	}
+}
+
+void	IO::I2C::read(byte address, byte* s, int length, IO::I2C::RepeatedStartSetting repeatedStart)
+{
+	I2CCore::I2CPacket* p = new(length) I2CCore::I2CPacket();
+}
+
+void	IO::I2C::write(byte address, byte const* s, int length, IO::I2C::RepeatedStartSetting repeatedStart)
+{
+	I2CCore::I2CPacket* p = new(length) I2CCore::I2CPacket();
 }

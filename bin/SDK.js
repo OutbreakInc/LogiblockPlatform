@@ -186,11 +186,12 @@ Toolchain.prototype =
 		//compile!
 		var compilerPath = path.join(pathsTable.sdk, "bin", "arm-none-eabi-g++");
 		console.log("compilerPath=", compilerPath, "args=", args);
+		var separator = (process.platform == "win32")? ";" : ":";
 		var compiler = childProcess.spawn(compilerPath, args,
 		{
 			env:
 			{
-				"PATH": path.join(pathsTable.sdk, "bin"),
+				"PATH": path.join(pathsTable.sdk, "bin") + separator + process.env["PATH"],
 				"LD_PATH": path.join(pathsTable.sdk, "lib")
 			}
 		});

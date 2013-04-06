@@ -45,7 +45,6 @@
 		typedef signed int			s32;
 		typedef unsigned long long	u64;
 		typedef signed long long	s64;
-		typedef unsigned long		size_t;
 	
 	#endif //!__ASSEMBLER__
 	
@@ -965,6 +964,38 @@
 	REGISTER	UARTTransmitEnabled =		REGISTER_ADDRESS(0x40008030);
 	
 	
+	//I2C
+	REGISTER	I2CControlSet =				REGISTER_ADDRESS(0x40000000);
+	REGISTER	I2CControlClear =			REGISTER_ADDRESS(0x40000018);
+		enum I2CControlSet
+		{
+			I2CControlSet_Ack				=	(0x04),
+			I2CControlSet_Interrupt			=	(0x08),
+			I2CControlSet_StopCondition		=	(0x10),		//do not clear I2CControlSet_StopCondition
+			I2CControlSet_StartCondition	=	(0x20),
+			I2CControlSet_EnableI2C			=	(0x40),
+		};
+	REGISTER	I2CStatus =					REGISTER_ADDRESS(0x40000004);
+		enum I2CStatus
+		{
+			I2CStatus_	//@@ugh
+		};
+	REGISTER	I2CData =					REGISTER_ADDRESS(0x40000008);
+	REGISTER	I2CBuffer =					REGISTER_ADDRESS(0x4000002C);
+	
+	REGISTER	I2CClockHighTime =			REGISTER_ADDRESS(0x40000010);
+	REGISTER	I2CClockLowTime =			REGISTER_ADDRESS(0x40000014);
+	
+	REGISTER	I2CSlaveAddress0 =			REGISTER_ADDRESS(0x4000000C);
+	REGISTER	I2CSlaveAddress1 =			REGISTER_ADDRESS(0x40000020);
+	REGISTER	I2CSlaveAddress2 =			REGISTER_ADDRESS(0x40000024);
+	REGISTER	I2CSlaveAddress3 =			REGISTER_ADDRESS(0x40000028);
+	REGISTER	I2CSlaveAddress0Mask =		REGISTER_ADDRESS(0x40000030);
+	REGISTER	I2CSlaveAddress1Mask =		REGISTER_ADDRESS(0x40000034);
+	REGISTER	I2CSlaveAddress2Mask =		REGISTER_ADDRESS(0x40000038);
+	REGISTER	I2CSlaveAddress3Mask =		REGISTER_ADDRESS(0x4000003C);
+	
+	
 	//Timer 0, 16-bit
 	REGISTER	Timer0Interrupts =			REGISTER_ADDRESS(0x4000C000);
 	REGISTER	Timer0Control =				REGISTER_ADDRESS(0x4000C004);
@@ -1186,8 +1217,6 @@
 	#define	InterruptsEnable()					__asm volatile ("CPSIE i" ::)
 	
 	extern "C" {
-	
-	void		memcpy(void* dest, void const* source, unsigned int length);
 	
 	void		_Sleep(void);
 	

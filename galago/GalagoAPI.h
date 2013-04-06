@@ -125,9 +125,9 @@ public:
 
 		void			start(int bitRate = 2000000UL, Role role = Master, Mode mode = Mode0);
 		inline void		stop(void)	{start(0);}
-
+		
 		bool			bytesAvailable(void) const;
-
+		
 		void			read(int length, byte* bytesReadBack, unsigned short writeChar = 0);
 		void			read(int length, unsigned short* bytesReadBack, unsigned short writeChar = 0);
 		
@@ -139,7 +139,7 @@ public:
 		inline void		write(byte b, int length = 1)		{write((unsigned short)b, length);}
 		inline void		write(short h, int length = 1)		{write((unsigned short)h, length);}
 		void			write(unsigned short h, int length = 1);
-
+		
 		inline void		write(char const* s, int length, byte* bytesReadBack = 0)	{write((byte const*)s, length, bytesReadBack);}
 		void			write(byte const* s, int length, byte* bytesReadBack = 0);
 		void			write(unsigned short const* s, int length, byte* bytesReadBack = 0);
@@ -147,6 +147,30 @@ public:
 
 	class I2C
 	{
+	public:
+		typedef enum
+		{
+			Master,
+			Slave,
+		} Role;
+		
+		typedef enum
+		{
+			No,
+			RepeatedStart,
+		} RepeatedStartSetting;
+		
+		void			start(int bitRate = 100000UL, Role role = Master);
+		inline void		stop(void)	{start(0);}
+		
+		//void			begin(byte address);
+		//void			readByte();
+		//void			writeByte();
+		
+		Task			read(byte address, byte* s, int length, RepeatedStartSetting repeatedStart = No);
+		Task			write(byte address, byte const* s, int length, RepeatedStartSetting repeatedStart = No);
+		
+		void			end(void);
 	};
 
 	class UART
@@ -187,16 +211,13 @@ public:
 
 		inline int		read(char* s, int length, bool readAll = false)	{read((byte*)s, length, readAll);}
 		int				read(byte* s, int length, bool readAll = false);
-		//int				read(unsigned short* s, int length, bool readAll = false);
 
 		inline int		write(char c, bool writeAll = true)		{return(write((byte)c, writeAll));}
-		inline int		write(byte b, bool writeAll = true)		{return(write((byte)b, writeAll));}
 		inline int		write(short h, bool writeAll = true)	{return(write((byte)h, writeAll));}
 		int				write(byte b, bool writeAll = true);
 
 		inline int		write(char const* s, int length = -1, bool writeAll = true)	{return(write((byte const*)s, length, writeAll));}
 		int				write(byte const* s, int length = -1, bool writeAll = true);
-		//int				write(unsigned short const* s, int length, byte* bytesReadBack = 0, bool writeAll = true);
 	};
 
 	Pin				P0;
@@ -236,15 +257,32 @@ private:
 	unsigned int	v;
 };
 
+class Task
+{
+};
+
 class System
 {
 public:
-	unsigned int	getCoreFrequency(void) const;
-	void			sleep(void);
-	void			delay(int microseconds);
-	void			addTimedTask(int period, void (*task)(void*), void* ref = 0);
+	static void*	alloc(size_t size);
+	static void		free(void* allocation);
 	
-	createTimer();
+	unsigned int	getCoreFrequency(void) const;
+	unsigned int	setCoreFrequency(unsigned int kHz);
+	
+	void			sleep(void) const;
+	
+	Task			delay(int microseconds);
+	
+	bool			cancelTask(Task t);
+					
+	bool			when(void (*completion)(void*), void* context, Task task1, ...);
+	
+	//synchronously wait for one or many tasks to complete.  When all tasks are complete the function will return.
+	//  this method uses the minimum power possible
+	bool			wait(Task task1, ...);
+	
+	Task			all(Task task1, Task task2, ...);
 	
 					System(void);
 };
@@ -253,5 +291,26 @@ static IO		IO;
 static System	System;
 
 }	//ns Galago
+
+inline void*		operator new(size_t size)	{return(Galago::System::alloc(size));}
+
+inline void*		operator new[](size_t size)	{return(Galago::System::alloc(size));}
+
+inline void*		operator new[](size_t size, unsigned int extra)	{return(Galago::System::alloc(size + extra));}
+
+inline void*		operator new(size_t size, unsigned int extra)	{return(Galago::System::alloc(size + extra));}
+
+inline void			operator delete(void* p)
+{
+	if(((unsigned int)(size_t)p) & 0x3)	return;	//@@throw
+	Galago::System::free((unsigned int*)p);
+}
+
+inline void			operator delete[](void* p)
+{
+	if(((unsigned int)(size_t)p) & 0x3)	return;	//@@throw
+	Galago::System::free((unsigned int*)p);
+}
+
 
 #endif //defined __GALAGO_H__
