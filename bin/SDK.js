@@ -165,7 +165,9 @@ Toolchain.prototype =
 		
 		//paths used to resolve complex referenced paths
 		pathsTable = _.extend({}, pathsTable);
-		console.log("pathsTable=", pathsTable);
+		
+		//@@if verbose mode
+		//console.log("pathsTable=", pathsTable);
 		
 		if(project.linkFile)
 			this.resolvePaths([project.linkFile], pathsTable, "project").forEach(function(path)
@@ -185,7 +187,10 @@ Toolchain.prototype =
 
 		//compile!
 		var compilerPath = path.join(pathsTable.sdk, "bin", "arm-none-eabi-g++");
-		console.log("compilerPath=", compilerPath, "args=", args);
+		
+		//@@if verbose mode
+		//console.log("compilerPath=", compilerPath, "args=", args);
+		
 		var separator = (process.platform == "win32")? ";" : ":";
 		var compiler = childProcess.spawn(compilerPath, args,
 		{
@@ -264,12 +269,49 @@ Toolchain.prototype =
 		;
 	},
 	
-	disassemble: function(pathsTable, objectFileArray, callback)
+	makebin: function(pathsTable, objectFile, outputFile, callback)
+	{
+		var args = ["-j", ".text", "-O", "binary", objectFile, outputFile];
+		
+		var objcopy = childProcess.spawn(path.join(pathsTable.sdk, "bin", "arm-none-eabi-objcopy"), args,
+		{
+			env:
+			{
+				"PATH": path.join(pathsTable.sdk, "bin"),
+				"LD_PATH": path.join(pathsTable.sdk, "lib")
+			}
+		});
+		objcopy.stdout.setEncoding("utf8");
+		objcopy.stderr.setEncoding("utf8");
+		var stdout = "", stderr = "";
+		
+		objcopy.stdout.on("data", function(data)
+		{
+			stdout += data;
+		}.bind(this));
+		objcopy.stderr.on("data", function(data)
+		{
+			stderr += data;
+		}.bind(this));
+		objcopy.on("exit", function(returnCode)
+		{
+			callback(undefined,
+			{
+				returnCode: returnCode,
+				output: stdout,
+				errors: stderr
+			});
+		}.bind(this));
+	},
+	
+	disassemble: function(pathsTable, objectFileArray, outputFile, callback)
 	{
 		var args = ["-d"];
 		
 		args = args.concat(objectFileArray);
 		
+		var output = fs.createWriteStream(outputFile);
+
 		var disassembler = childProcess.spawn(path.join(pathsTable.sdk, "bin", "arm-none-eabi-objdump"), args,
 		{
 			env:
@@ -282,10 +324,8 @@ Toolchain.prototype =
 		disassembler.stderr.setEncoding("utf8");
 		var stdout = "", stderr = "";
 		
-		disassembler.stdout.on("data", function(data)
-		{
-			stdout += data;
-		}.bind(this));
+		disassembler.stdout.pipe(output);
+		
 		disassembler.stderr.on("data", function(data)
 		{
 			stderr += data;
@@ -296,6 +336,55 @@ Toolchain.prototype =
 			{
 				returnCode: returnCode,
 				disassembly: stdout,
+				errors: stderr
+			});
+		}.bind(this));
+	},
+	
+	reportSize: function(pathsTable, objectFileArray, callback)
+	{
+		var args = [].concat(objectFileArray);
+		
+		var elfSize = childProcess.spawn(path.join(pathsTable.sdk, "bin", "arm-none-eabi-size"), args,
+		{
+			env:
+			{
+				"PATH": path.join(pathsTable.sdk, "bin"),
+				"LD_PATH": path.join(pathsTable.sdk, "lib")
+			}
+		});
+		elfSize.stdout.setEncoding("utf8");
+		elfSize.stderr.setEncoding("utf8");
+		var stdout = "", stderr = "";
+		
+		elfSize.stdout.on("data", function(data)
+		{
+			stdout += data;
+		}.bind(this));
+		
+		elfSize.stderr.on("data", function(data)
+		{
+			stderr += data;
+		}.bind(this));
+		elfSize.on("exit", function(returnCode)
+		{
+			//parse size report in Berkeley format (see `man size`)
+			var lines = stdout.split("\n");
+
+			lines.shift();	//discard the first line (the legend)
+
+			var sizes = [];
+			for(var lineIdx in lines)
+			{
+				var fields = lines[lineIdx].match(/\S+/g);
+				if(fields)
+					sizes.push({name: fields.pop(), size: parseInt(fields.shift())});
+			}
+
+			callback(undefined,
+			{
+				returnCode: returnCode,
+				sizes: sizes,
 				errors: stderr
 			});
 		}.bind(this));
@@ -463,20 +552,27 @@ Compiler.prototype =
 
 				var build = function build(dependencyJSON)
 				{
-					var outputName = path.join((dirs.output || dirs.project || "."), "module.elf");
+					var outputDir = (dirs.output || dirs.project || ".")
+					var outputName = path.join(outputDir, "module.elf");
 					ths.toolchain.compile(dirs, outputName, settings, function(err, compileResult)
 					{
 						//console.log("compilation complete: ", compileResult);
 						if(err)	return(callback(err));
 						
-						// @@diag and debug
-						/*ths.toolchain.disassemble(dirs, [outputName], function(err, result)
+						compileResult.disasmPath = path.join(outputDir, "module.disasm.txt");
+						ths.toolchain.disassemble(dirs, [outputName], compileResult.disasmPath, function(err, result)
 						{
-							//output it somewhere, e.g. stream it to a disassembly file
-							
-						});*/
-						
-						callback(undefined, outputName, compileResult);
+							compileResult.binaryPath = path.join(outputDir, "module.bin");
+							ths.toolchain.makebin(dirs, outputName, compileResult.binaryPath, function(err, binResults)
+							{
+								ths.toolchain.reportSize(dirs, outputName, function(err, sizeResults)
+								{
+									compileResult.sizes = sizeResults.sizes;
+
+									callback(undefined, outputName, compileResult);
+								});
+							});
+						});
 					});
 				};
 				
@@ -529,11 +625,37 @@ if(require.main == module)
 			output: projectBase,	//@@for now
 		}, function(err, outputFile, result)
 		{
-			//console.log("compile() result: ", arguments);
-
-			for(var i = 0; i < result.compileErrors.length; i++)
+			if(err)
 			{
-				console.log(result.compileErrors[i]);
+				console.warn("Compiling failed!  Error:");
+				console.warn(err);
+				process.exit(-1);
+			}
+			else
+			{
+				//console.log("compile() RESULT: ", result);
+				for(var i = 0; i < result.compileErrors.length; i++)
+				{
+					console.log(result.compileErrors[i]);
+				}
+
+				if(result.returnCode == 0)
+				{
+					var sizeStr, moduleSize = result.sizes[0].size;
+					if(moduleSize >= 1048576)
+						sizeStr = (moduleSize / 1048576).toFixed(2) + "MB";
+					else if(moduleSize >= 1024)
+						sizeStr = (moduleSize / 1024).toFixed(2) + "KB";
+
+					console.log("Built successfully, using " + sizeStr + " of 32KB.");	//@@pull size limit from targets
+
+					console.log("\n  ELF output:  " + outputFile + "\n  Binary image:  " + result.binaryPath + "\n  Disassembly file:  " + result.disasmPath + "\n");
+				}
+				else
+				{
+					console.log("Did not build successfully.  Please check the compilers warnign and errors for more information.");
+				}
+				process.exit(result.returnCode);
 			}
 		});
 

@@ -42,6 +42,11 @@
 			{
 				"PART": "lpc1343"
 			},
+			"limits":
+			{
+				"flash": 32768,
+				"sram": 8192
+			},
 			"settings":
 			{
 				"debug": true,
