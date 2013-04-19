@@ -16,7 +16,7 @@ SECTIONS
 		PROVIDE(__init_start = .);
 		KEEP(*(SORT(.init_array)))
 		PROVIDE(__init_end = .);
-		
+
 		*(.text .text.*)
 		*(.gnu.linkonce.t.*)
 		*(.glue_7)
@@ -90,6 +90,11 @@ SECTIONS
 	_bss_end__ = . ;
 	__bss_end__ = . ;
 	__end__ = . ;
+	PROVIDE(__heap_start__ = .);
+	
+	. += (8k - 512);
+	
+	PROVIDE(__heap_end__ = .);
 
   	.stackarea (NOLOAD) :
   	{
@@ -103,7 +108,7 @@ SECTIONS
 
 		. = ALIGN(4);
 		_end = . ;
-		PROVIDE (end = .);
+		PROVIDE(end = .);
 
   	} > SRAM
 

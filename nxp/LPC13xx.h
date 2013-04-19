@@ -794,7 +794,7 @@
 	//  damage the chip.
 	//  A 0 for a bit means running, while 1 means powered-down.
 	REGISTER	PowerDownWakeupControl =	REGISTER_ADDRESS(0x40048234);	//aka PDAWAKECFG
-	REGISTER	PowerDownControl =			REGISTER_ADDRESS(0x40048238);	//aka PDAWAKECFG
+	REGISTER	PowerDownControl =			REGISTER_ADDRESS(0x40048238);	//aka PDRUNCFG
 		enum PowerDownControl
 		{
 			PowerDownControl_InternalCrystalOutput		= 0x001,
@@ -1093,7 +1093,7 @@
 		{
 			ADCControl_ChannelSelectBitmask =		(0xFF),	//applies to manual (one at a time) mode
 			
-			ADCControl_BurstModeBitmask =			(0xFF),	//applies to automatic (bust, round-robin) mode only
+			ADCControl_BurstModeBitmask =			(0xFF),	//applies to automatic (burst, round-robin) mode only
 			
 			//This must be chosen so that PCLK / (ADCControl_ADCClockDividerBitmask + 1) is close to but less than 4.5MHz.
 			//  The clock rate may be decreased to better sample high-impedance analog sources.

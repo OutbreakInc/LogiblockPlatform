@@ -10,9 +10,11 @@
 using namespace LPC1300;
 using namespace Galago;
 
-//@@todo: temp, generate symbols syntheticically in link script
-static unsigned int* const	__heapstart = (unsigned int* const)(MEMORY_SRAM_BOTTOM);
-static unsigned int* const	__heapend = (unsigned int* const)(MEMORY_SRAM_TOP - 512);	//assume 512-byte stack
+extern int __heap_start__;
+extern int __heap_end__;
+
+static unsigned int* const	__heapstart = (unsigned int* const)(&__heap_start__);
+static unsigned int* const	__heapend = (unsigned int* const)(&__heap_end__);	//assume 512-byte stack
 
 namespace Galago
 {
@@ -35,9 +37,7 @@ Task&					Task::operator =(Task const& t)
 struct TaskUnion
 {
 	Task			self;
-	//Task*			tasks;
 	unsigned short	count;
-	//unsigned short	tally;
 };
 
 void	TaskUnion_onCompletion(void* context, Task t, bool success)
@@ -102,12 +102,11 @@ bool	CircularBuffer::write(byte b)
 	*(_head = n) = b;
 	return(true);
 }
-bool	CircularBuffer::write(byte const* b, int length)
+int	CircularBuffer::write(byte const* b, int length)
 {
-	while(length--)
-		if(!write(*b++))
-			return(false);
-	return(true);
+	int count = 0;
+	while((length--) && write(*b++))	count++;
+	return(count);
 }
 
 bool	CircularBuffer::read(byte* b)
@@ -119,12 +118,11 @@ bool	CircularBuffer::read(byte* b)
 	return(true);
 }
 
-bool	CircularBuffer::read(byte* b, int length)
+int		CircularBuffer::read(byte* b, int length)
 {
-	while(length--)
-		if(!read(b++))
-			return(false);
-	return(true);
+	int count = 0;
+	while((length--) && read(b++))	count++;
+	return(count);
 }
 
 ////////////////////////////////////////////////////////////////
@@ -752,7 +750,10 @@ static unsigned char const IO_ioConfigForPin[] =
 				IO::IO(void)
 {
 	*IOConfigSCKLocation = 2;	//put SCK0 on pin pio0.6, labeled 'SCK' on Galago
-
+	
+	//@@find a way to defer this via refcount with debouncing to avoid unnecessary power transitions and warm-up
+	*PowerDownControl |= PowerDownControl_ADC;	//power on the ADC
+	
 	Pin* p = &p0;
 	for(int i = 0; i < 26; i++)
 		*p++ = Pin(kIOPinChart[i]);
@@ -761,14 +762,25 @@ static unsigned char const IO_ioConfigForPin[] =
 extern "C"
 void		IRQ_ADC(void)
 {
+	//save the result of the last conversion
+	*IOCore.adcCurrentTask->output = *ADCData;
+	//deselect the channel and reset the run mode (this has the effect of stopping the ADC
+	//  if it isn't restarted for the next conversion.
+	*ADCData &= ~(ADCControl_ChannelSelectBitmask | ADCControl_StartStopMask);
+	
 	//for performance, flexibility and jam-resistance, always start the next task before completing the current one.
 	IOCore::ADCTask* last = IOCore.adcCurrentTask;
 	IOCore.adcCurrentTask = (IOCore::ADCTask*)IOCore.adcCurrentTask->next;
 	
-	//start new conversion
+	//start a new conversion
 	if(IOCore.adcCurrentTask != 0)
+		*ADCControl |= (ADCControl_StartNow | (1 << IOCore.adcCurrentTask->channel));
+	else
 	{
+		//shut down the ADC - deselect the clock
+		*ClockControl &= ~ClockControl_ADC;
 		
+		//*PowerDownControl |= PowerDownControl_ADC;	//@@probably overkill
 	}
 	
 	//complete task
@@ -787,6 +799,8 @@ void			IO::Pin::write(int value)
 
 Task			IO::Pin::readAnalog(unsigned int* result)
 {
+	*ClockControl |= ClockControl_ADC;	//enable the ADC clock if not already active
+	
 	int adcChannel = 0;
 	switch(PIN_ID(v))
 	{
@@ -1043,6 +1057,11 @@ void	IRQ_UART(void)
 int		IO::UART::read(byte* s, int length)
 {
 	//read bytes from the RX buffer.  Synchronous and nonblocking
+	
+	if(IOCore.uartReceiveBuffer == 0)
+		return(0);
+	
+	return(IOCore.uartReceiveBuffer->read(s, length));
 }
 
 
@@ -1153,7 +1172,7 @@ void	IO::I2C::start(int bitRate, IO::I2C::Role role)
 	}
 	else
 	{
-		//shut down clock
+		//shut down I2C clock
 		*ClockControl &= ~ClockControl_I2C;
 		*InterruptEnableClear1 = Interrupt1_I2C;
 	}

@@ -216,8 +216,8 @@ Toolchain.prototype =
 		}.bind(this));
 		compiler.on("exit", function(returnCode)
 		{
-			//console.log("stdout: ", stdout);
-			//console.log("stderr: ", stderr);
+			console.log("stdout: ", stdout);
+			console.log("stderr: ", stderr);
 
 			//for each line of output, see if it matches the way GCC formats an error
 			stderr.split("\n").forEach(function(line)

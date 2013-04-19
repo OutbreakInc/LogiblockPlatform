@@ -50,9 +50,9 @@ public:
 			~CircularBuffer(void);
 
 	bool	write(byte b);
-	bool	write(byte const* b, int length);
+	int		write(byte const* b, int length);
 	bool	read(byte* b);
-	bool	read(byte* b, int length);
+	int		read(byte* b, int length);
 	
 private:
 	byte*	_start;
@@ -125,7 +125,7 @@ public:
 			Default,
 		} Mode;
 		
-		//not all
+		//not all parts feature these pin modes
 		typedef enum
 		{
 			Normal,
@@ -139,12 +139,11 @@ public:
 			OpenDrain,
 		} Feature;
 		
-		inline			Pin(void)				{}
-		inline			Pin(Pin const& p)		{}
-		inline	Pin&	operator =(Pin const& p)	{}
+		inline			Pin(Pin const& p): v(p.v)			{}
+		inline	Pin&	operator =(Pin const& p)			{v = p.v; return(*this);}
 
-		inline	Pin&	operator =(bool value)	{}
-		inline	Pin&	operator =(int value)	{}
+		inline	Pin&	operator =(bool value)	{write(value? 1 : 0); return(*this);}
+		inline	Pin&	operator =(int value)	{write(value); return(*this);}
 		inline			operator bool(void)		{return((bool)read());}
 
 		int				read(void);
@@ -160,6 +159,7 @@ public:
 
 	private:
 		inline			Pin(unsigned int value): v(value)	{setMode(Default);}
+		inline			Pin(void)							{}
 		
 		unsigned int	v;
 	};
