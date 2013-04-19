@@ -642,7 +642,14 @@
 			PeripheralnReset_SPI1 	=	0x04,
 			PeripheralnReset_CAN	= 	0x08,
 		};
+	//the system PLL takes a selectable input frequency and has transform function H(f) = f * ((M + 1) / 2^^(P + 1))
 	REGISTER	PLLControl =			REGISTER_ADDRESS(0x40048008);
+		enum PLLControl
+		{
+			PLLControl_MultiplierBitsMask	= 0x1F,	//value M, multiplication factor is (M + 1)
+			PLLControl_DividerBitsMask		= 0x60,	//value P, division factor is 2^^(P + 1)
+			PLLControl_DividerBitsShift		= 6,
+		};
 	REGISTER	PLLStatus =				REGISTER_ADDRESS(0x4004800C);
 		enum PLLStatus
 		{
@@ -651,8 +658,10 @@
 	REGISTER	OscillatorControl =		REGISTER_ADDRESS(0x40048020);
 		enum PLLSourceSelect
 		{
-			PLLSourceSelect_Bypass		= 0x00,
-			PLLSourceSelect_Freqrange	= 0x01,
+			PLLSourceSelect_Normal		= 0x00,
+			PLLSourceSelect_Bypassed	= 0x01,
+			PLLSourceSelect_1_to_20MHz	= 0x00,
+			PLLSourceSelect_15_to_25MHz	= 0x02,
 		};
 	REGISTER	WatchdogControl =			REGISTER_ADDRESS(0x40048024);
 		enum WatchdogControl
@@ -683,18 +692,18 @@
 			ResetStatus_BrownoutReset			= 0x08,
 			ResetStatus_SoftwareReset			= 0x10,
 		};
-	REGISTER	PLLSource =				REGISTER_ADDRESS(0x40048040);
+	REGISTER	PLLSource =				REGISTER_ADDRESS(0x40048040);		//aka SYSPLLCLKSEL
 		enum PLLSource
 		{
 			PLLSource_InternalCrystal	= 0x00,
 			PLLSource_ExternalClock		= 0x01,
 		};
-	REGISTER	PLLSourceUpdate =			REGISTER_ADDRESS(0x40048044);
+	REGISTER	PLLSourceUpdate =			REGISTER_ADDRESS(0x40048044);	//aka SYSPLLUEN
 		enum PLLSourceUpdate
 		{
 			PLLSourceUpdate_Enable		= 0x01,
 		};
-	REGISTER	MainClockSource =			REGISTER_ADDRESS(0x40048070);
+	REGISTER	MainClockSource =			REGISTER_ADDRESS(0x40048070);	//aka MAINCLKSEL
 		enum MainClockSource
 		{
 			MainClockSource_InternalCrystal		= 0x00,
@@ -702,30 +711,30 @@
 			MainClockSource_WDTOscillator		= 0x02,
 			MainClockSource_PLLOutput			= 0x03,
 		};
-	REGISTER	MainClockSourceUpdate =		REGISTER_ADDRESS(0x40048074);
+	REGISTER	MainClockSourceUpdate =		REGISTER_ADDRESS(0x40048074);	//aka MAINCLKUEN
 		enum MainClockSourceUpdate
 		{
 			MainClockSourceUpdate_Enable	= 0x01,
 		};
-	REGISTER	MainBusDivider =			REGISTER_ADDRESS(0x40048078);
-	REGISTER	ClockControl =				REGISTER_ADDRESS(0x40048080);
+	REGISTER	MainBusDivider =			REGISTER_ADDRESS(0x40048078);	//aka SYSAHBCLKDIV
+	REGISTER	ClockControl =				REGISTER_ADDRESS(0x40048080);	//aka SYSAHBCLKCTRL
 		enum ClockControl
 		{
-			ClockControl_Core				= 0x000001,
-			ClockControl_ROM				= 0x000002,
-			ClockControl_RAM				= 0x000004,
-			ClockControl_FlashRegisters		= 0x000008,
-			ClockControl_FlashStorage		= 0x000010,
+			ClockControl_Core				= 0x000001,	//* = enabled at power-up
+			ClockControl_ROM				= 0x000002,	//*
+			ClockControl_RAM				= 0x000004,	//*
+			ClockControl_FlashRegisters		= 0x000008,	//*
+			ClockControl_FlashStorage		= 0x000010,	//*
 			ClockControl_I2C				= 0x000020,
-			ClockControl_GPIO				= 0x000040,
+			ClockControl_GPIO				= 0x000040,	//*
 			ClockControl_Timer16_0			= 0x000080,
 			ClockControl_Timer16_1			= 0x000100,
 			ClockControl_Timer32_0			= 0x000200,
 			ClockControl_Timer32_1			= 0x000400,
-			ClockControl_SPI0				= 0x000800,
+			ClockControl_SPI0				= 0x000800,	//*
 			ClockControl_UART				= 0x001000,
 			ClockControl_ADC				= 0x002000,
-			ClockControl_USB_13xx			= 0x004000,
+			ClockControl_USB_13xx			= 0x004000,	//*
 			ClockControl_Watchdog			= 0x008000,
 			ClockControl_IOConfig			= 0x010000,
 			ClockControl_CAN_11xx			= 0x020000,
@@ -734,6 +743,7 @@
 	REGISTER	SPI0ClockDivider =			REGISTER_ADDRESS(0x40048094);
 	REGISTER	UARTClockDivider =			REGISTER_ADDRESS(0x40048098);
 	REGISTER	SPI1ClockDivider =			REGISTER_ADDRESS(0x4004809C);
+	REGISTER	SystickClockDivider =		REGISTER_ADDRESS(0x400480B0);
 	REGISTER	WatchdogSource =			REGISTER_ADDRESS(0x400480D0);
 		enum WatchdogSource
 		{
@@ -776,6 +786,27 @@
 			BrownoutControl_Interrupt_2800mV_2900mV		= 0x0C,
 			
 			BrownoutControl_ResetEnabled				= 0x10,
+		};
+	
+	//PowerDownControl and PowerDownWakeupControl set the power state of various features
+	//  while running or upon wakeup (respectivley.)  Modify only the enumerated bits of these
+	//  registers, as modifying undocumented bits will lead to undefined behaviour and may
+	//  damage the chip.
+	//  A 0 for a bit means running, while 1 means powered-down.
+	REGISTER	PowerDownWakeupControl =	REGISTER_ADDRESS(0x40048234);	//aka PDAWAKECFG
+	REGISTER	PowerDownControl =			REGISTER_ADDRESS(0x40048238);	//aka PDAWAKECFG
+		enum PowerDownControl
+		{
+			PowerDownControl_InternalCrystalOutput		= 0x001,
+			PowerDownControl_InternalCrystal			= 0x002,
+			PowerDownControl_Flash						= 0x004,
+			PowerDownControl_BrownOutDetector			= 0x008,
+			PowerDownControl_ADC						= 0x010,
+			PowerDownControl_SystemOscillator			= 0x020,	//for an external crystal
+			PowerDownControl_WatchdogOscillator			= 0x040,
+			PowerDownControl_SystemPLL					= 0x080,
+			PowerDownControl_USBPLL						= 0x100,
+			PowerDownControl_USBPins					= 0x400,
 		};
 	
 	
@@ -1135,7 +1166,18 @@
 			ADCStatus_InterruptRaised =		(0x01 << 16),
 		};
 	
-
+	
+	REGISTER	SystickControl =			REGISTER_ADDRESS(0xE000E010);
+		enum SystickControl
+		{
+			SystickControl_Enable =				(0x01),
+			SystickControl_InterruptEnabled =	(0x02),
+			SystickControl_ClockSource =		(0x04),	//always 0 on LPC1xxx
+			SystickControl_Signalled =			(1 << 16),
+		};
+	REGISTER	SystickReload =				REGISTER_ADDRESS(0xE000E014);
+	REGISTER	SystickValue =				REGISTER_ADDRESS(0xE000E018);
+	
 	//Write 1 to set interrupts on InterruptSet, write 1 to clear interrupts on InterruptClear
 	REGISTER	InterruptEnableSet0 =		REGISTER_ADDRESS(0xE000E100);
 		enum Interrupt0
@@ -1211,12 +1253,21 @@
 	REGISTER	InterruptClearPending0 =	REGISTER_ADDRESS(0xE000E280);
 	REGISTER	InterruptClearPending1 =	REGISTER_ADDRESS(0xE000E284);
 	
+	#ifdef __cplusplus
 	} //ns
+	#endif //__cplusplus
+
+	#ifdef __arm__
+		#define	InterruptsDisable()					__asm volatile ("CPSID i" ::)
+		#define	InterruptsEnable()					__asm volatile ("CPSIE i" ::)
+	#else
+		#define	InterruptsDisable()					do{}while(0)
+		#define	InterruptsEnable()					do{}while(0)
+	#endif //__arm__
 	
-	#define	InterruptsDisable()					__asm volatile ("CPSID i" ::)
-	#define	InterruptsEnable()					__asm volatile ("CPSIE i" ::)
-	
+	#ifdef __cplusplus
 	extern "C" {
+	#endif //__cplusplus
 	
 	void		_Sleep(void);
 	
@@ -1277,8 +1328,10 @@
 	void		IRQ_GPIO_1(void);
 	void		IRQ_GPIO_0(void);
 	
+	#ifdef __cplusplus
 	}	//extern "C"
-	
+	#endif //__cplusplus
+
 	#endif	//assembler
 
 #endif	//__LPC1300_SERIES_INCLUDED__

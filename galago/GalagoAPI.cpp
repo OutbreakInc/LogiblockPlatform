@@ -1,44 +1,406 @@
 #include "GalagoAPI.h"
 #include "LPC13xx.h"
 
+#include <stdarg.h>
+
+//strictly a property of the circuit the chip is soldered to
+#define HARDWARE_EXTERNAL_CRYSTAL_FREQUENCY (12000000UL)
+
+
 using namespace LPC1300;
 using namespace Galago;
 
-//@@temp, move to link file
+//@@todo: temp, generate symbols syntheticically in link script
 static unsigned int* const	__heapstart = (unsigned int* const)(MEMORY_SRAM_BOTTOM);
 static unsigned int* const	__heapend = (unsigned int* const)(MEMORY_SRAM_TOP - 512);	//assume 512-byte stack
+
+namespace Galago
+{
+	IO		io;
+	System system;
+}
+	
+
+////////////////////////////////////////////////////////////////
+//
+
+Task&					Task::operator =(Task const& t)
+{
+	refer(t._t);
+	release(_t);
+	_t = t._t;
+	return(*this);
+}
+
+struct TaskUnion
+{
+	Task			self;
+	//Task*			tasks;
+	unsigned short	count;
+	//unsigned short	tally;
+};
+
+void	TaskUnion_onCompletion(void* context, Task t, bool success)
+{
+	TaskUnion* u = (TaskUnion*)context;
+	Task self = u->self;
+	
+	if(!success)
+	{
+		if(--u->count == 0)
+		{
+			//delete[] u->tasks;
+			delete u;
+		}
+		system.completeTask(self, false);
+	}
+	else
+	{
+		if(--u->count == 0)
+		{
+			//delete[] u->tasks;
+			delete u;
+			
+			system.completeTask(self, true);
+		}
+	}
+}
+
+Task				Task::operator +(Task const& r) const
+{
+	TaskUnion* u = new TaskUnion();
+	u->self = system.createTask();
+	system.when(*this, &TaskUnion_onCompletion, u);
+	system.when(r, &TaskUnion_onCompletion, u);
+	
+	return(u->self);
+}
+
+void				Task::release(InternalTask* t)	//static
+{
+	if(t && (--t->_rc == 0))
+		t->destroy();
+}
+
+////////////////////////////////////////////////////////////////
+//
+
+		CircularBuffer::CircularBuffer(int size)
+{
+	_start = _head = _tail = new byte[size];
+	_end = _start + size;
+}
+		CircularBuffer::~CircularBuffer(void)
+{
+	delete[] _start;
+}
+bool	CircularBuffer::write(byte b)
+{
+	byte* n = _head + 1;
+	if(n == _end)	n = _start;
+	if(n == _tail)	return(false);
+	*(_head = n) = b;
+	return(true);
+}
+bool	CircularBuffer::write(byte const* b, int length)
+{
+	while(length--)
+		if(!write(*b++))
+			return(false);
+	return(true);
+}
+
+bool	CircularBuffer::read(byte* b)
+{
+	byte* n = _tail + 1;
+	if(n == _end)	n = _start;
+	if(n == _head)	return(false);
+	*b = *(_tail = n);
+	return(true);
+}
+
+bool	CircularBuffer::read(byte* b, int length)
+{
+	while(length--)
+		if(!read(b++))
+			return(false);
+	return(true);
+}
+
+////////////////////////////////////////////////////////////////
+// IOCore
+
+struct IOCore
+{
+	struct TaskQueueItem
+	{
+		TaskQueueItem*	next;
+		Task			task;
+		
+						TaskQueueItem(void):
+							next(0)
+		{}
+	};
+	
+	struct TimerTask: public TaskQueueItem
+	{
+		unsigned int	span;	//timespan from now until the task is due, in ms
+		
+						TimerTask(unsigned int s): span(s)
+		{}
+	};
+	
+	struct ADCTask: public TaskQueueItem
+	{
+		int				channel;
+		unsigned int*	output;
+		
+						ADCTask(int chan, unsigned int* out):
+							channel(chan),
+							output(out)
+		{}
+	};
+	
+	struct WriteTask: public TaskQueueItem
+	{
+		unsigned short	idx;
+		unsigned short	len;
+		byte			data[1];
+
+						WriteTask(byte const* bytes, int l):
+							idx(0),
+							len(l)
+		{
+			for(int i = 0; i < l; i++)
+				data[i] = *bytes++;
+		}
+	};
+	
+	TimerTask*		timerCurrentTask;
+	
+	ADCTask*		adcCurrentTask;
+	
+	CircularBuffer*	uartReceiveBuffer;
+	WriteTask*		uartCurrentWriteTask;
+	
+	WriteTask*		i2cCurrentTask;
+	
+	WriteTask*		spiCurrentTask;
+	
+					IOCore(void):
+						timerCurrentTask(0),
+						adcCurrentTask(0),
+						uartReceiveBuffer(0),
+						uartCurrentWriteTask(0),
+						i2cCurrentTask(0),
+						spiCurrentTask(0)
+	{
+		//uartReceiveBuffer = new CircularBuffer(128);	//@@defer until UART is started, free when stopped
+	}
+	
+	static void		queueItem(TaskQueueItem** head, TaskQueueItem* item)
+	{
+		InterruptsDisable();
+		while(*head != 0)
+			head = &((*head)->next);
+		*head = item;
+		InterruptsEnable();
+	}
+};
+
+static IOCore IOCore;
+
+////////////////////////////////////////////////////////////////
+// System
 
 				System::System(void)
 {
 	//initialize heap
 	*(unsigned int*)__heapstart = ((__heapend - __heapstart) >> 2);
 	
-	//@@ if the core reset due to a WDT interrupt, store the external clock kHz as "no crystal", else:
-		//@@ set up timer2 (32bit) to count up 1:1 with the core
-		//@@ set watchdog to a known interval: WatchdogControl_Frequency_4_0MHz * 4 * 1000
-		//@@ start counter and watchdog
-		//@@ wait for interrupt
+	//enable IO configuration
+	*ClockControl |= ClockControl_IOConfig;
 
-	//@@ when a watchdog interrupt occurs, read the timer2 count value
-		//@@ stop and disable timer2, disable watchdog
-		//@@ store the count value as the approximate KHz of the external clock
 }
 
-unsigned int	System::getCoreFrequency(void) const
+static unsigned int	System_getPLLInputFrequency(void)
+{
+	switch(*PLLSource)
+	{
+	default:
+	case PLLSource_InternalCrystal:
+		return(12000000UL);
+	case PLLSource_ExternalClock:
+		return(HARDWARE_EXTERNAL_CRYSTAL_FREQUENCY);
+	}
+}
+
+static unsigned int	System_getPLLOutputFrequency(void)
+{
+	//the PLL on the LPC1xxx parts isn't very well designed, as the fixed relationship between
+	//  FCLKOUT, the M-divider and FCLKIN means that the output is always an integer multiple
+	//  of the input.  A better design would use relationship: Fcco / M = Fin; Fout = Fcco / D.
+	//  (The LPC1xxx uses relationship: Fcco / D / M = Fin; Fout = Fcco / D.)
+	
+	return(System_getPLLInputFrequency() * ((*PLLControl & PLLControl_MultiplierBitsMask) + 1));
+}
+
+unsigned int	System::getMainClockFrequency(void) const
 {
 	switch(*MainClockSource)
 	{
+	default:
 	case MainClockSource_InternalCrystal:
-		return(12e6);
+		return(12000000UL);
 	case MainClockSource_PLLInput:
-		return(0);
+		return(System_getPLLInputFrequency());
 	case MainClockSource_WDTOscillator:
-		return(0);
+		return(3400000UL);		//@@todo: confirm this is a reliable figure
 	case MainClockSource_PLLOutput:
-		return(0);
+		return(System_getPLLOutputFrequency());
 	}
-	return(0);
 }
+
+//this is also the AHB (main high-speed bus) frequency
+unsigned int	System::getCoreFrequency(void) const
+{
+	//note no /0 check, but I would be very alarmed if this code could excecute with a stopped core :-/
+	return(getMainClockFrequency() / *MainBusDivider);
+}
+
+void			System_strobeClockUpdateEnable(REGISTER updateEnable)
+{
+	*updateEnable = 1;
+	*updateEnable = 0;
+	*updateEnable = 1;
+	
+	while(!(*updateEnable & 1));	//spinwait for the change to take effect before returning
+}
+
+unsigned int	System_divideClockFrequencyRounded(unsigned int n, unsigned int d)
+{
+	unsigned int q = (((n << 1) / d) + 1) >> 1;
+	return(q? q : 1);
+}
+void			System::setCoreFrequency(unsigned int desiredFrequency)
+{
+	//128KHz is established as a practical minimum
+	if(desiredFrequency < 128000UL)
+		desiredFrequency = 128000UL;
+	if(desiredFrequency > 72000000UL)
+		desiredFrequency = 72000000UL;
+	
+	//ensure the internal crystal is on
+	*PowerDownControl &= ~(PowerDownControl_InternalCrystalOutput | PowerDownControl_InternalCrystal);
+	
+	*MainClockSource = MainClockSource_InternalCrystal;
+	System_strobeClockUpdateEnable(MainClockSourceUpdate);
+	
+	//ensure the external crystal is on, as it's used in both cases.
+	*PowerDownControl &= ~PowerDownControl_SystemOscillator;
+	
+	if(desiredFrequency > 12000000UL)	//must use PLL > 12MHz	@@to MAX(12e6, HARDWARE_EXTERNAL_CRYSTAL_FREQUENCY)
+	{
+		//turn on the PLL
+		*PowerDownControl &= ~PowerDownControl_SystemPLL;
+		
+		*PLLSource = PLLSource_ExternalClock;
+		System_strobeClockUpdateEnable(PLLSourceUpdate);
+		
+		//pick a multiplier in the range [2..6] and divider such that the error is as small as possible
+		unsigned int bestM = 2, bestD = 1, smallestError = 0xFFFFFFFF, busFrequency;
+		for(unsigned int m = 2; m < 7; m++)
+		{
+			busFrequency = HARDWARE_EXTERNAL_CRYSTAL_FREQUENCY * m;
+			unsigned int div = System_divideClockFrequencyRounded(busFrequency, desiredFrequency);
+			
+			int error = (int)desiredFrequency - (int)(busFrequency / div);
+			if(error < 0)	error = -error;	//use abs(error)
+			
+			if(error < smallestError)
+			{
+				smallestError = error;
+				bestM = m;
+				bestD = div;
+			}
+		}
+		
+		//set the PLL's multiplication factor
+		*PLLControl = bestM;
+		
+		//wait for lock
+		while(!(*PLLStatus & PLLStatus_Locked));
+		
+		//run the core from the PLL
+		*MainClockSource = MainClockSource_PLLOutput;
+		System_strobeClockUpdateEnable(MainClockSourceUpdate);
+		
+		//with this divider:
+		*MainBusDivider = bestD;
+		
+		//adjust the SysTick timer to have a nominal rate of 1kHz
+		*SystickClockDivider = busFrequency / 1000;
+	}
+	else
+	{
+		//run the core from the external clock with a divider
+		
+		//select the external clock as the input to the PLL
+		*PLLSource = PLLSource_ExternalClock;
+		System_strobeClockUpdateEnable(PLLSourceUpdate);
+		
+		//drive the main clock from the PLL input (ignores the PLL)
+		*MainClockSource = MainClockSource_PLLInput;
+		System_strobeClockUpdateEnable(MainClockSourceUpdate);
+		
+		//compute the closest division ratio
+		*MainBusDivider = System_divideClockFrequencyRounded(HARDWARE_EXTERNAL_CRYSTAL_FREQUENCY, desiredFrequency);
+		
+		//turn off the PLL if it was on
+		*PowerDownControl |= PowerDownControl_SystemPLL;
+		
+		//adjust the SysTick timer to have a nominal rate of 1kHz
+		*SystickClockDivider = HARDWARE_EXTERNAL_CRYSTAL_FREQUENCY / 1000;
+	}
+}
+
+unsigned int	System::getClockOutputFrequency(void) const
+{
+	unsigned int fMain;
+	switch(*ClockOutputSource)
+	{
+	case ClockOutputSource_InternalCrystal:
+		fMain = 12000000UL;
+		break;
+	case ClockOutputSource_ExternalOscillator:
+		fMain = HARDWARE_EXTERNAL_CRYSTAL_FREQUENCY;
+		break;
+	case ClockOutputSource_WDTOscillator:
+		fMain = 3400000UL;
+		break;
+	case ClockOutputSource_MainClock:
+		fMain = getMainClockFrequency();
+		break;
+	}
+	
+	unsigned int div = *ClockOutputDivider;
+	return(div? (fMain / div) : 0);
+}
+
+void	System::setClockOutputFrequency(unsigned int desiredFrequency)
+{
+	if(desiredFrequency > 0)
+	{
+		*ClockOutputDivider = System_divideClockFrequencyRounded(getMainClockFrequency(), desiredFrequency);
+	}
+	else
+		*ClockOutputDivider = 0;	//disable
+}
+
+
+////////////////////////////////////////////////////////////////
+// Memory management
+
 
 static const unsigned int kHeapFlagMask = 0xFF000000;
 static const unsigned int kHeapAllocated = 0x80000000;
@@ -112,263 +474,346 @@ void			System::free(void* allocation)
 }
 
 
-void			System::sleep(void) const
+////////////////////////////////////////////////////////////////
+// Tasks
+
+//Tasks are promises
+
+namespace Galago {
+
+struct InternalTaskCallback
 {
+	void	(*f)(void* context, Task, bool success);
+	void*	c;
+};
 
 }
 
-//@@sleep until a certain time occurs or burn time?
-void			System::delay(int microseconds) const
+void			InternalTask::destroy(void)
 {
+	if((_flags & 0x3FFF) > 0)
+		delete[] _c;
+	delete this;
+}
+
+Task			System::createTask(void)
+{
+	//when tasks are created, they're created as unresolved promises with no callback capability
+	InternalTask* task = new InternalTask();
+	task->_rc = task->_flags = 0;
+	task->_c = 0;
 	
+	return(Task(task));
 }
 
-int				System::addTimedTask(int period, bool repeat, void (*task)(void*), void* ref)
+bool			System::completeTask(Task t, bool success)
 {
-	return(0);
-}
-
-bool			System::removeTimedTask(int id)
-{
-	return(false);
-}
-
-bool			System::removeTimedTask(void (*task)(void*), void* ref)
-{
-	return(false);
-}
-
-//IO Pins
-
-//on Galago 0BAB04xx, here is what the bits store:
-
-	//bits 26-31:	abbreviated memory address of the IO pin configuration register
-
-	//bit 25:		last digital input value
-	//bit 24:		digital output value
+	if((t._t == 0) || (t._t->_flags > 0x3FFF))	//if invalid or already resolved, fail
+		return(false);
 	
-	//bits 16-23:	pin mode
+	t._t->_flags |= (success? (1 << 14) : (1 << 15));	//status
 	
-	//bits 15-16:	(unallocated)
+	//@@defer until not in the NVIC stack any longer, then call user callbacks
+	InternalTaskCallback* callbacks = t._t->_c;
+	int numCallbacks = t._t->_flags & 0x3FFF;
+	for(int i = 0; i < numCallbacks; i++)
+		callbacks[i].f(callbacks[i].c, t, success);
+	
+	return(true);
+}
 
-	//bits 12-14:	analog channel number
-
-	//bits 8-11:	IO bank
-	//bits 0-7:		pin number
-
-
-#define PinID(port, pin) ((port << 3) | (port << 2) | pin)
-
-static unsigned int volatile*	gpioAddress(unsigned int v)		{return((unsigned int volatile*)(0x50000000 | ((v & 0xF00) << 8) | (4 << (v & 0xFF))));}
-static unsigned int volatile*	gpioDirAddress(unsigned int v)	{return((unsigned int volatile*)(0x50000000 | ((v & 0xF00) << 8) | 0x8000));}
-static unsigned int volatile*	ioConfigAddress(unsigned int v)	{return((unsigned int volatile*)(0x40044000 | (v >> 24)));}
-static unsigned int 			analogChannel(unsigned int v)	{return((v >> 12) & 0x7);}
-
-static int pinID(unsigned int gpioID)
+//remember, on ARM Cortex-M (especially NXP parts), optimize for small RAM and program size because the CPU is
+//  comparitively disproportionally, insanely, stupidly fast. (Remember 75MHz Pentiums in the '90s with 2000x the RAM
+//  these microcontrollers have?
+bool			System::when(Task t, void (*completion)(void* context, Task, bool success), void* context)
 {
-	if(gpioID < 0x200)	//GPIO pins 0.0 to 1.11 inclusive
+	if((t._t == 0) || (completion == 0))	//if invalid, fail
+		return(false);
+	
+	if(t._t->_flags > 0x3FFF)	//already resolved, act on promise
 	{
-		return((gpioID & 0xFF) + (gpioID >> 8) * 12);
+		completion(context, t, (t._t->_flags < 0x8000));
+		return(true);
 	}
-	else
+	
+	//if the callback:context tuple is already present, do nothing
+	InternalTaskCallback* callbacks = t._t->_c;
+	int numCallbacks = t._t->_flags & 0x3FFF;
+	for(int i = 0; i < numCallbacks; i++)
+		if((callbacks[i].f == completion) && (callbacks[i].c == context))
+			return(true);
+	
+	//add the callback:context tuple to the task
+	InternalTaskCallback* newCallbacks = new InternalTaskCallback[numCallbacks + 1];
+	
+	for(int i = 0; i < numCallbacks; i++)
+		newCallbacks[i] = callbacks[i];
+	
+	newCallbacks[numCallbacks].f = completion;
+	newCallbacks[numCallbacks].c = context;
+	
+	t._t->_c = newCallbacks;
+	t._t->_flags++;	//count the new callback
+	
+	if(numCallbacks)
+		delete[] callbacks;
+	
+	return(true);
+}
+
+bool			System::wait(Task t, System::InvokeCallbacksOption invokeCallbacks)
+{
+	if(t._t == 0)	return(false);
+	
+	//a mini event-loop!
+	while(t._t->_flags < 0x4000)	//while not resolved
+		sleep();	//service interrupts and the like	//@@???
+	
+	return(t._t->_flags < 0x8000);
+}
+
+static void		System_wakeFromSpan(void)
+{
+	//take the current systick down-counter value
+	//subtract that value from the span
+	//subtract the span from each queued task
+	
+	unsigned int span = *SystickReload - *SystickValue;
+	for(IOCore::TimerTask* timer = IOCore.timerCurrentTask; timer != 0; timer = (IOCore::TimerTask*)timer->next)
+		timer->span = (timer->span > span)? (timer->span - span) : 0;
+}
+static void		System_reloadSystick(int milliseconds)
+{
+	*SystickReload = milliseconds;
+	*SystickValue = 0;
+	*SystickControl = SystickControl_Enable | SystickControl_InterruptEnabled;
+}
+
+Task			System::delay(int milliseconds)
+{
+	System_wakeFromSpan();
+	
+	//insert a task into the queue
+	IOCore::TimerTask* timer = new IOCore::TimerTask(milliseconds);
+	timer->task = system.createTask();
+	
+	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.timerCurrentTask, timer);
+	
+	//if the queue was empty, enable the systick timer/interrupt and set the span
+	if(timer->next == 0)
+		System_reloadSystick(milliseconds);
+}
+
+//fundamental frequency of 1kHz
+extern "C"
+void			_InternalIRQ_SysTick(void)
+{
+	System_wakeFromSpan();
+	
+	bool reloaded = false;
+	
+	//if we're at a deadline, deadline = dequeue the top task(s)
+	for(IOCore::TimerTask* timer = IOCore.timerCurrentTask; timer != 0;)
 	{
-		switch(gpioID)
+		if(timer->span == 0)
 		{
-		case 0x200:	return(24);
-		case 0x302:	return(25);
-		case 0x304:	return(26);
-		case 0x305:	return(27);
+			system.completeTask(timer->task, true);
+			IOCore::TimerTask* old = timer;
+			
+			timer = (IOCore::TimerTask*)timer->next;
+			
+			delete old;
+		}
+		else if(!reloaded)
+		{
+			reloaded = true;
+			
+			//reload systick and span with the delay of the top task or disable it
+			System_reloadSystick(timer->span);
 		}
 	}
-	return(-1);
+	
+	if(!reloaded)
+		*SystickValue = *SystickReload = *SystickControl = 0;	//stop timer
 }
 
-int				IO::Pin::read(void)
-{
-	//if((v & 0xFF0000) == (IO::Pin::AnalogInput << 16))
-	if((v >> 16) == IO::Pin::AnalogInput)
-	{
-		*ADCControl = (*ADCControl & ~0xFF00) | ADCControl_StartNow | analogChannel(v);
-	}
-	else
-		return(*gpioAddress(v) != 0);
-}
-void			IO::Pin::write(int value)
-{
-	if((v >> 16) == IO::Pin::DigitalOutput)
-		*gpioAddress(v) = (value != 0)? ~0 : 0;
-}
 
-//of a u32, bits 0-11 are gpio0.0-0.11, bits 12-23 are gpio1.0-1.11, bits 24-27 are gpio2.0, gpio3.2, gpio3.4, gpio3.5.	Bits 28-31 are undefined
-enum
-{
-	PORT0 = (1 << 1),
-	PORT1 = (1 << 12),
-	PORT2_0 = (1 << 24),
-	PORT3_2 = (1 << 25),
-	PORT3_4 = (1 << 26),
-	PORT3_5 = (1 << 27),
-};
+////////////////////////////////////////////////////////////////
+//IO Pins
+
+//Pins must be optimized for these operations in this priority order:
+
+//Output logic level, input logic level
+//  requires fast lookup to an IO port num and the pin's bit position
+//Setting mode
+//  I/O direction r/w should be superfast, requires IO port num and pin bit position
+//  requires lookup of an IO configuration address for the pin
+//Read analog level, where supported
+
+//therefore, I/O Pin objects should store the port number [0,3], pin number [0,11] and a dense pin ID
+//  io port mask:	0xFF000000
+//	pin num mask:	0x00FF0000
+//	pin id mask:	0x0000FFFF
 
 enum
 {
-	PIN_P0	= (PORT0 << 0),
-	PIN_P1	= (PORT0 << 1),
-	PIN_P2	= (PORT1 << 8),
-	PIN_P3	= (PORT0 << 2),
-	PIN_P4	= (PORT0 << 3),
-	PIN_P5	= (PORT1 << 9),
-	PIN_P6	= (PORT3_2),
-
-	PIN_DP	= (PORT3_5),
-	PIN_DM	= (PORT3_4),
-
-	PIN_RTS	= (PORT1 << 5),
-	PIN_CTS	= (PORT0 << 7),
-	PIN_TXD	= (PORT1 << 7),
-	PIN_RXD	= (PORT1 << 6),
+	PIN_P0,	PIN_P1, PIN_P2, PIN_P3, PIN_P4, PIN_P5, PIN_P6,
 	
-	PIN_SCL	= (PORT0 << 4),
-	PIN_SDA	= (PORT0 << 5),
-
-	PIN_SCK	= (PORT0 << 6),
-	PIN_SEL	= (PORT2_0),
-	PIN_MISO =(PORT0 << 8),
-	PIN_MOSI =(PORT0 << 9),
-
-	PIN_A0	= (PORT0 << 11),
-	PIN_A1	= (PORT1 << 0),
-	PIN_A2	= (PORT1 << 1),
-	PIN_A3	= (PORT1 << 2),
-	PIN_A5	= (PORT1 << 4),
-	PIN_A7	= (PORT1 << 11),
+	PIN_DP, PIN_DM,
 	
-	PIN_LED	= (PORT1 << 10),
+	PIN_RTS, PIN_CTS, PIN_TXD, PIN_RXD,
+	
+	PIN_SCL, PIN_SDA,
+	
+	PIN_SCK, PIN_SEL, PIN_MISO, PIN_MOSI,
+	
+	PIN_A0, PIN_A1, PIN_A2, PIN_A3, PIN_A5, PIN_A7,
+	
+	PIN_LED,
 };
 
-//0x02817800; 
-//0x00000030; 
-//0x01000340; 
-//0x006D6B02; 
-//0x000E0080;
-//0x0C010003;
 
-static unsigned int const kPinSupportsGPIO =	(0xFFFFFFF & ~(PIN_DP | PIN_DM));	//every pin except the USB ones
-static unsigned int const kPinSupportsADC =		(PIN_A0 | PIN_A1 | PIN_A2 | PIN_A3 | PIN_A5 | PIN_A7); //0x02817800
-static unsigned int const kPinSupportsI2C =		(PIN_SCL | PIN_SDA); //0x00000030
-static unsigned int const kPinSupportsSPI =		(PIN_SCK | PIN_SEL | PIN_MISO | PIN_MOSI); //0x01000340
-static unsigned int const kPinSupportsPWM =		(PIN_P1 | PIN_P5 | PIN_TXD | PIN_RXD | PIN_MISO | PIN_MOSI | PIN_A0 | PIN_A2 | PIN_A3 | PIN_A5 | PIN_LED); //0x006D6B02
-static unsigned int const kPinSupportsUART =	(PIN_RTS | PIN_CTS | PIN_TXD | PIN_RXD); //0x000E0080
-static unsigned int const kPinSupportsSpecial =	(PIN_P0 | PIN_P1 | PIN_DP | PIN_DM | PIN_A5);	//P0 is !reset, P1 is clkout, A5 is wakeup //0x0C010003
-
-static unsigned int const kPinFunc1IsGPIO =		(PIN_P0 | PIN_A0 | PIN_A1 | PIN_A2 | PIN_A3);	//otherwise it's func 0		//0x00007801
-static unsigned int const kPinFunc1IsADC =		(PIN_A5 | PIN_A7);		//otherwise it's func 2		//0x00810000
+//Pin feature and mode lookup tables
+static unsigned int const kPinSupportsGPIO =(0xFFFFFFF & ~(_BIT(PIN_DP)) | _BIT(PIN_DM));
+static unsigned int const kPinSupportsADC =	(_BIT(PIN_A0) | _BIT(PIN_A1) | _BIT(PIN_A2) | _BIT(PIN_A3)
+	| _BIT(PIN_A5) | _BIT(PIN_A7));
+static unsigned int const kPinSupportsI2C =	(_BIT(PIN_SCL) | _BIT(PIN_SDA));
+static unsigned int const kPinSupportsSPI =	(_BIT(PIN_SCK) | _BIT(PIN_SEL) | _BIT(PIN_MISO) | _BIT(PIN_MOSI));
+static unsigned int const kPinSupportsPWM =	(_BIT(PIN_P1) | _BIT(PIN_P5) | _BIT(PIN_TXD) | _BIT(PIN_RXD) |
+	_BIT(PIN_MISO) | _BIT(PIN_MOSI) | _BIT(PIN_A0) | _BIT(PIN_A2) | _BIT(PIN_A3) | _BIT(PIN_A5) | _BIT(PIN_LED));
+static unsigned int const kPinSupportsUART =	(_BIT(PIN_RTS) | _BIT(PIN_CTS) | _BIT(PIN_TXD) | _BIT(PIN_RXD));
+static unsigned int const kPinSupportsSpecial =	(_BIT(PIN_P0) | _BIT(PIN_P1) | _BIT(PIN_DP) | _BIT(PIN_DM)
+	| _BIT(PIN_A5));	//P0 is !reset, P1 is clkout, A5 is wakeup
+static unsigned int const kPinFunc1IsGPIO =	(_BIT(PIN_P0) | _BIT(PIN_A0) | _BIT(PIN_A1)
+	| _BIT(PIN_A2) | _BIT(PIN_A3));	//otherwise it's func 0
+static unsigned int const kPinFunc1IsADC =	(_BIT(PIN_A5) | _BIT(PIN_A7));		//otherwise it's func 2
 //I2C is always func 1
 //SPI is always func 1 except for gpio0.6, where it's 2
-static unsigned int const kPinFunc2IsPWM =		(PIN_P1 | PIN_MISO | PIN_MOSI | PIN_A5 | PIN_TXD | PIN_RXD | PIN_LED);	//otherwise it's func 3 except for gpio1.9 where it's 1		//0x004D0302
+static unsigned int const kPinFunc2IsPWM =	(_BIT(PIN_P1) | _BIT(PIN_MISO) | _BIT(PIN_MOSI) | _BIT(PIN_A5)
+	| _BIT(PIN_TXD) | _BIT(PIN_RXD) | _BIT(PIN_LED));	//otherwise it's func 3 except for gpio1.9 where it's 1
 //UART is always func 1
 //Special is always 1 except for gpio0.0 where it's 0
 
-/*
-#define pinTableEntry(registerOffset)	((registerOffset))
-static unsigned char const pinDefaults[28] =
+
+#define PIN_STATE(pinID, ioPort, ioPinNumber)		((ioPort << 24) | (ioPinNumber << 16) | pinID)
+#define PIN_ID(v)					(v >> 16)
+#define PIN_IO_PORT(v)				((v >> 8) & 0xFF)
+#define PIN_IO_PIN_NUM(v)			(v & 0xFF)
+#define PIN_GPIO_DATA_PORT(port)	REGISTER_ADDRESS(0x50000000 | (port << 16))
+#define PIN_GPIO_DIR_PORT(port)		REGISTER_ADDRESS(0x50008000 | (port << 16))
+static unsigned int const kIOPinChart[] =	//@@this could be reduced to 1/4 its size to save 78 bytes :-o
 {
-	pinTableEntry(0x0C),	//PinID(0, 0),	//2		P0
-	pinTableEntry(0x10),	//PinID(0, 1),	//3		P1
-	pinTableEntry(0x1C),	//PinID(0, 2),	//8		P3
-	pinTableEntry(0x2C),	//PinID(0, 3),	//9		P4
-	pinTableEntry(0x30),	//PinID(0, 4),	//10	SCL
-	pinTableEntry(0x34),	//PinID(0, 5),	//11	SDA
-	pinTableEntry(0x4C),	//PinID(0, 6),	//15	SCK
-	pinTableEntry(0x50),	//PinID(0, 7),	//16	CTS
-	pinTableEntry(0x60),	//PinID(0, 8),	//17	MISO
-	pinTableEntry(0x64),	//PinID(0, 9),	//18	MOSI
-	0,						//0,
-	pinTableEntry(0x74),	//PinID(0, 11),	//21	A0
-		
-	pinTableEntry(0x78),	//PinID(1, 0),	//22	A1
-	pinTableEntry(0x7C),	//PinID(1, 1),	//23	A2
-	pinTableEntry(0x80),	//PinID(1, 2),	//24	A3
-	0,						//0,
-	pinTableEntry(0x94),	//PinID(1, 4),	//26	A5
-	pinTableEntry(0xA0),	//PinID(1, 5),	//30	RTS
-	pinTableEntry(0xA4),	//PinID(1, 6),	//31	RXD
-	pinTableEntry(0xA8),	//PinID(1, 7),	//32	TXD
-	pinTableEntry(0x14),	//PinID(1, 8),	//7		P2
-	pinTableEntry(0x38),	//PinID(1, 9),	//12	P5
-	pinTableEntry(0x6C),	//PinID(1, 10),	//20	LED (A6)
-	pinTableEntry(0x98),	//PinID(1, 11),	//27	A7
+	PIN_STATE(PIN_P0, 0, 0),	//P0
+	PIN_STATE(PIN_P1, 0, 1),	//P1
+	PIN_STATE(PIN_P2, 1, 8),	//P2
+	PIN_STATE(PIN_P3, 0, 2),	//P3
+	PIN_STATE(PIN_P4, 0, 3),	//P4
+	PIN_STATE(PIN_P5, 1, 9),	//P5
+	PIN_STATE(PIN_P6, 3, 2),	//P6
 	
-	pinTableEntry(0x0C),	//PinID(2, 0),	//1		SEL
-	
-	pinTableEntry(0x9C),	//PinID(3, 2),	//28	P6
-	pinTableEntry(0x3C),	//PinID(3, 4),	//13	USB D-
-	pinTableEntry(0x48)		//PinID(3, 5),	//14	USB D+
-							//4		XTALIN
-							//5		XTALOUT
-							//6		VDD
-							//19	SWDCLK
-							//25	SWDIO
-							//29	VDD
+	PIN_STATE(PIN_DM, 3, 4),	//D-
+	PIN_STATE(PIN_DP, 3, 5),	//D+
+
+	PIN_STATE(PIN_RTS, 1, 5),	//RTS
+	PIN_STATE(PIN_CTS, 0, 7),	//CTS
+	PIN_STATE(PIN_TXD, 1, 7),	//TXD
+	PIN_STATE(PIN_RXD, 1, 6),	//RXD
+
+	PIN_STATE(PIN_SDA, 0, 5),	//SDA
+	PIN_STATE(PIN_SCL, 0, 4),	//SCL
+
+	PIN_STATE(PIN_SCK, 0, 6),	//SCK
+	PIN_STATE(PIN_SEL, 2, 0),	//SEL
+	PIN_STATE(PIN_MISO, 0, 8),	//MISO
+	PIN_STATE(PIN_MOSI, 0, 9),	//MOSI
+
+	PIN_STATE(PIN_A0, 0, 11),	//A0
+	PIN_STATE(PIN_A1, 1, 0),	//A1
+	PIN_STATE(PIN_A2, 1, 1),	//A2
+	PIN_STATE(PIN_A3, 1, 2),	//A3
+	PIN_STATE(PIN_A5, 1, 4),	//A5
+	PIN_STATE(PIN_A7, 1, 11),	//A7
+
+	PIN_STATE(PIN_LED, 1, 10),	//led
 };
-*/
 
-#define PIN_STATE(partSpecificData, pinMode, analogChannel, ioBank, pinNumber)		(((partSpecificData) << 24) | ((pinMode) << 16) | ((analogChannel) << 12) | ((ioBank) << 8) | ((pinNumber) << 0) )
-unsigned int const kIOPinInitialState[26] =
+#define PIN_IOCONFIG_ADDRESS(pinID)	REGISTER_ADDRESS(0x40044000 + IO_ioConfigForPin[pinID])
+static unsigned char const IO_ioConfigForPin[] =
 {
-	PIN_STATE(0x0C, IO::Pin::Reset, 0, 0, 0),			//P0
-	PIN_STATE(0x10, IO::Pin::DigitalInput, 0, 0, 1),	//P1
-	PIN_STATE(0x14, IO::Pin::DigitalInput, 0, 1, 8),	//P2
-	PIN_STATE(0x1C, IO::Pin::DigitalInput, 0, 0, 2),	//P3
-	PIN_STATE(0x2C, IO::Pin::DigitalInput, 0, 0, 3),	//P4
-	PIN_STATE(0x38, IO::Pin::DigitalInput, 0, 1, 9),	//P5
-	PIN_STATE(0x3C, IO::Pin::USB, 0, 3, 4),				//D-
-	PIN_STATE(0x48, IO::Pin::USB, 0, 3, 5),				//D+
-	PIN_STATE(0x9C, IO::Pin::DigitalInput, 0, 3, 2),	//P6
-
-	PIN_STATE(0xA0, IO::Pin::DigitalInput, 0, 1, 5),	//RTS
-	PIN_STATE(0x50, IO::Pin::DigitalInput, 0, 0, 7),	//CTS
-	PIN_STATE(0xA8, IO::Pin::DigitalInput, 0, 1, 7),	//TXD
-	PIN_STATE(0xA4, IO::Pin::DigitalInput, 0, 1, 6),	//RXD
-
-	PIN_STATE(0x34, IO::Pin::DigitalInput, 0, 0, 5),	//SDA
-	PIN_STATE(0x30, IO::Pin::DigitalInput, 0, 0, 4),	//SCL
-
-	PIN_STATE(0x4C, IO::Pin::DigitalInput, 0, 0, 6),	//SCK
-	PIN_STATE(0x0C, IO::Pin::DigitalInput, 0, 2, 0),	//SEL
-	PIN_STATE(0x60, IO::Pin::DigitalInput, 0, 0, 8),	//MISO
-	PIN_STATE(0x64, IO::Pin::DigitalInput, 0, 0, 9),	//MOSI
-
-	PIN_STATE(0x74, IO::Pin::DigitalInput, 0, 0, 11),	//A0
-	PIN_STATE(0x78, IO::Pin::DigitalInput, 1, 1, 0),	//A1
-	PIN_STATE(0x7C, IO::Pin::DigitalInput, 2, 1, 1),	//A2
-	PIN_STATE(0x80, IO::Pin::DigitalInput, 3, 1, 2),	//A3
-	PIN_STATE(0x94, IO::Pin::DigitalInput, 5, 1, 4),	//A5
-	PIN_STATE(0x98, IO::Pin::DigitalInput, 7, 1, 11),	//A7
-
-	PIN_STATE(0x6C, IO::Pin::DigitalInput, 0, 1, 10),	//led
+	0x0C, 0x10, 0x14, 0x1C, 0x2C, 0x38, 0x3C,	//P0, P1, P2, P3, P4, P5, P6
+	0x48, 0x9C,									//D-, D+
+	0xA0, 0x50, 0xA8, 0xA4,						//RTS, CTS, TXD, RXD
+	0x34, 0x30,									//SDA, SCL
+	0x4C, 0x0C, 0x60, 0x64,						//SCK, SEL, MISO, MOSI
+	0x74, 0x78, 0x7C, 0x80, 0x94, 0x98,			//A0, A1, A2, A3, A5, A7
+	0x6C,										//LED
 };
 
 				IO::IO(void)
 {
-	*IOConfigSCKLocation = 2;	//put SCK0 on pin pio0.6
+	*IOConfigSCKLocation = 2;	//put SCK0 on pin pio0.6, labeled 'SCK' on Galago
 
-	Pin* p = &P0;
+	Pin* p = &p0;
 	for(int i = 0; i < 26; i++)
-		*p++ = Pin(kIOPinInitialState[i]);
+		*p++ = Pin(kIOPinChart[i]);
 }
 
+extern "C"
+void		IRQ_ADC(void)
+{
+	//for performance, flexibility and jam-resistance, always start the next task before completing the current one.
+	IOCore::ADCTask* last = IOCore.adcCurrentTask;
+	IOCore.adcCurrentTask = (IOCore::ADCTask*)IOCore.adcCurrentTask->next;
+	
+	//start new conversion
+	if(IOCore.adcCurrentTask != 0)
+	{
+		
+	}
+	
+	//complete task
+	system.completeTask(last->task);
+	delete last;
+}
+
+int				IO::Pin::read(void)
+{
+	return(PIN_GPIO_DATA_PORT(PIN_IO_PORT(v))[1 << PIN_IO_PIN_NUM(v)]);
+}
+void			IO::Pin::write(int value)
+{
+	PIN_GPIO_DATA_PORT(PIN_IO_PORT(v))[1 << PIN_IO_PIN_NUM(v)] = (1 << PIN_IO_PIN_NUM(v));
+}
+
+Task			IO::Pin::readAnalog(unsigned int* result)
+{
+	int adcChannel = 0;
+	switch(PIN_ID(v))
+	{
+	case PIN_A0:	adcChannel = 0;	break;
+	case PIN_A1:	adcChannel = 1;	break;
+	case PIN_A2:	adcChannel = 2;	break;
+	case PIN_A3:	adcChannel = 3;	break;
+	case PIN_A5:	adcChannel = 5;	break;
+	case PIN_A7:	adcChannel = 7;	break;
+	}
+	
+	Task task = system.createTask();
+	IOCore::ADCTask* adcTask = new IOCore::ADCTask(adcChannel, result);
+	adcTask->task = task;
+	
+	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.adcCurrentTask, adcTask);
+	
+	return(task);
+}
 
 void			IO::Pin::setMode(Mode mode, Feature feature)
 {
-	unsigned int io = (v & 0xFFF);
-	unsigned int id = pinID(io);
+	unsigned int id = PIN_ID(v);
 	unsigned int mask = (1 << id);
-
-	if(id < 0)	return;	//not a valid pin
 	
-	unsigned int volatile* pinConfig = ioConfigAddress(v);
-
+	REGISTER pinConfig = PIN_IOCONFIG_ADDRESS(id);
+	
 	switch(mode)
 	{
 	case IO::Pin::DigitalInput:
@@ -379,11 +824,11 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 				*pinConfig &= ~0x3;
 				if(kPinFunc1IsGPIO & (1 << id))	*pinConfig |= 1;	//else mode is 0
 				
-				unsigned int bit = (1 << (v & 0xFF));
-				if(mode == IO::Pin::DigitalOutput)
-					*gpioDirAddress(v) |= bit;
-				else
-					*gpioDirAddress(v) &= ~bit;
+				unsigned int bit = (1 << PIN_IO_PIN_NUM(v));
+				REGISTER gpioDirPort = PIN_GPIO_DIR_PORT(PIN_IO_PORT(v));
+				
+				if(mode == IO::Pin::DigitalOutput)	*gpioDirPort |= bit;
+				else								*gpioDirPort &= ~bit;
 			}
 		}
 		break;
@@ -395,7 +840,7 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 		}
 		break;
 	case IO::Pin::Reset:
-		if(io == 0x000)	//only gpio0.0 has reset ability
+		if(id == PIN_P0)	//only gpio0.0 has reset ability
 		{
 			*pinConfig &= ~0x3;
 			//it so happens mode 0 is reset on gpio0.0, so leave it
@@ -405,7 +850,7 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 		if(kPinSupportsSPI & mask)
 		{
 			*pinConfig &= ~0x3;
-			*pinConfig |= ((io == 0x006)? 2 : 1);
+			*pinConfig |= ((id == PIN_SCK)? 2 : 1);
 		}
 		break;
 	case IO::Pin::I2C:
@@ -426,8 +871,8 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 		if(kPinSupportsPWM & mask)
 		{
 			*pinConfig &= ~0x3;
-			if(io == 0x109)	*pinConfig |= 1;
-			else			*pinConfig |= ((kPinFunc2IsPWM & (1 << id))? 2 : 3);
+			if(id == PIN_P5)	*pinConfig |= 1;
+			else				*pinConfig |= ((kPinFunc2IsPWM & (1 << id))? 2 : 3);
 		}
 		break;
 
@@ -438,13 +883,10 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 }
 
 ////////////////////////////////////////////////////////////////
+//
 
 void			IO::SPI::start(int bitRate, Role role, Mode mode)
 {
-	Galago::IO.SCK.setMode(IO::Pin::SPI);
-	Galago::IO.MOSI.setMode(IO::Pin::SPI);
-	Galago::IO.MISO.setMode(IO::Pin::SPI);
-
 	*PeripheralnReset &= ~PeripheralnReset_SPI0;	//assert reset
 	
 	if(bitRate > 0)
@@ -452,8 +894,7 @@ void			IO::SPI::start(int bitRate, Role role, Mode mode)
 		*ClockControl |= ClockControl_SPI0;	//enable SPI0 clock
 		*SPI0ClockPrescaler = 1;
 
-		//@@solve this to get as close as possible to x in: bitRate = Fahb/2/x
-		*SPI0ClockDivider = 6000000UL / bitRate;
+		*SPI0ClockDivider = (system.getCoreFrequency() >> 1) / bitRate;
 
 		*SPI0Control0 = SPI0Control0_8BitTransfer | SPI0Control0_FrameFormat_SPI | SPI0Control0_SPIMode0;
 		*SPI0Control1 = SPI0Control1_Enable;
@@ -465,7 +906,7 @@ void			IO::SPI::start(int bitRate, Role role, Mode mode)
 }
 
 
-void			IO::SPI::read(int length, byte* bytesReadBack, unsigned short writeChar)
+Task			IO::SPI::read(int length, byte* bytesReadBack, unsigned short writeChar)
 {
 	while(length-- > 0)
 	{
@@ -476,7 +917,7 @@ void			IO::SPI::read(int length, byte* bytesReadBack, unsigned short writeChar)
 	}
 }
 
-void			IO::SPI::read(int length, unsigned short* bytesReadBack, unsigned short writeChar)
+Task			IO::SPI::read(int length, unsigned short* bytesReadBack, unsigned short writeChar)
 {
 	while(length-- > 0)
 	{
@@ -488,7 +929,7 @@ void			IO::SPI::read(int length, unsigned short* bytesReadBack, unsigned short w
 }
 
 
-void			IO::SPI::write(unsigned short h, int length)
+Task			IO::SPI::write(unsigned short h, int length)
 {
 	while(length-- > 0)
 	{
@@ -497,7 +938,7 @@ void			IO::SPI::write(unsigned short h, int length)
 	}
 }
 
-void			IO::SPI::write(byte const* s, int length, byte* bytesReadBack)
+Task			IO::SPI::write(byte const* s, int length, byte* bytesReadBack)
 {
 	while(length-- > 0)
 	{
@@ -507,7 +948,7 @@ void			IO::SPI::write(byte const* s, int length, byte* bytesReadBack)
 			*bytesReadBack++ = (byte)*SPI0Data;
 	}
 }
-void			IO::SPI::write(unsigned short const* s, int length, byte* bytesReadBack)
+Task			IO::SPI::write(unsigned short const* s, int length, byte* bytesReadBack)
 {
 	while(length-- > 0)
 	{
@@ -519,12 +960,13 @@ void			IO::SPI::write(unsigned short const* s, int length, byte* bytesReadBack)
 }
 
 ////////////////////////////////////////////////////////////////
+//
 
 void		IO::UART::start(int baudRate, Mode mode)
 {
 	if(baudRate > 0)
 	{
-		int q = System.getCoreFrequency() / (16 * baudRate);
+		int q = system.getCoreFrequency() / (16 * baudRate);
 		int n = 0;
 		int d = 1;
 		
@@ -559,148 +1001,135 @@ void		IO::UART::startWithExplicitRatio(int divider, int fracN, int fracD, Mode m
 	*InterruptEnableSet1 |= Interrupt1_UART; //set up UART interrupt
 }
 
-int		IO::UART::read(byte* s, int length, bool readAll)
+extern "C"
+void	IRQ_UART(void)
 {
-	int c = 0;
-	if(readAll)
+	//receive any available bytes
+	while(*UARTLineStatus & UARTLineStatus_ReceiverDataReady)
 	{
-		while(length > 0)
-		{
-			//make sure there's a new char
-			while(!(*UARTLineStatus & UARTLineStatus_TxHoldingRegisterEmpty));
-			*UARTData = *s++;
-			length--;
-			c++;
-		}
+		if(!IOCore.uartReceiveBuffer->write(*UARTData))
+			break;
 	}
-	else
+	
+	//do we have bytes to send?
+	while(IOCore.uartCurrentWriteTask != 0)
 	{
+		IOCore::WriteTask* writeTask = IOCore.uartCurrentWriteTask;
 		//push chars only while there's room.
-		while((length > 0) & (*UARTLineStatus & UARTLineStatus_TxHoldingRegisterEmpty))
+		while(		(writeTask->idx < writeTask->len)	//while there are chars to send
+					&& (*UARTLineStatus & UARTLineStatus_TxHoldingRegisterEmpty)	//and the FIFO isn't full
+				)
+			*UARTData = writeTask->data[writeTask->idx++];	//push chars into the FIFO
+		
+		if(writeTask->idx == writeTask->len)	//if finished
 		{
-			*UARTData = *s++;
-			length--;
-			c++;
+			IOCore.uartCurrentWriteTask = (IOCore::WriteTask*)writeTask->next;
+			system.completeTask(writeTask->task);
+			delete writeTask;
+		}
+		else
+		{
+			//would set interrupt on non-full/empty tx buffer, but the LPC1xx's 16C550 implementation doesn't have one
+			//  so we have to resort to polling :-(
+			//  a period of 50us-60us supports megabaud rates
+			
+			//@@todo: poll
+			
+			break;	//don't move to the next packet
 		}
 	}
-	return(c);
 }
 
-int		IO::UART::write(byte const* s, int length, bool writeAll)
+int		IO::UART::read(byte* s, int length)
 {
-	int c = 0;
-	if(writeAll)
-	{
-		while(length > 0)
-		{
-			//make sure there's room for this char
-			while(!(*UARTLineStatus & UARTLineStatus_TxHoldingRegisterEmpty));
-			*UARTData = *s++;
-			length--;
-			c++;
-		}
-	}
-	else
-	{
-		//push chars only while there's room.
-		while((length > 0) & (*UARTLineStatus & UARTLineStatus_TxHoldingRegisterEmpty))
-		{
-			*UARTData = *s++;
-			length--;
-			c++;
-		}
-	}
-	return(c);
+	//read bytes from the RX buffer.  Synchronous and nonblocking
+}
+
+
+Task		IO::UART::write(byte const* s, int length)
+{
+	Task task = system.createTask();
+	IOCore::WriteTask* writeTask = new(length) IOCore::WriteTask(s, length);
+	writeTask->task = task;
+	
+	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.uartCurrentWriteTask, writeTask);
+	
+	return(task);
 }
 
 ////////////////////////////////////////////////////////////////
-
-struct I2CCore
-{
-	struct I2CPacket
-	{
-		I2CPacket*		next;
-		unsigned int	length;
-		unsigned char	data[1];
-	};
-	
-	void			processEvent(void)
-	{
-		int status = *I2CStatus;
-		switch(status)
-		{
-		case 0x08:	//start bit sent
-		case 0x10:	//repeated start
-			*I2CData = currentPacket->data[0];
-			*I2CControlClear = I2CControlSet_StartCondition;
-			break;
-			
-		case 0x18:	//write address ACKed, ready to write
-			*I2CData = currentPacket->data[0];
-			break;
-			
-		case 0x20:	//write address NACKed, stop
-			*I2CControlSet = I2CControlSet_StopCondition;
-			
-			//@@abort packet
-			break;
-			
-		case 0x48:	//read address NACKed, stop
-			*I2CControlSet = I2CControlSet_StopCondition;
-			
-			//@@abort packet
-			break;
-			
-		case 0x40:	//read address ACKed, ready to read
-			if(currentPacket->length == 1)	*I2CControlClear = I2CControlSet_Ack;
-			
-			break;
-		
-		case 0x28:	//byte sent, ACK received
-			if(currentPacket->length < currentPacket->length)
-				*I2CData = currentPacket->data[currentPacket->length++];
-			else
-			{
-				if((currentPacket->next != 0) && (currentPacket->next->data[0] == currentPacket->data[0]))
-					*I2CControlSet = I2CControlSet_StartCondition;
-				else
-					*I2CControlSet = I2CControlSet_StopCondition;
-			}
-			break;
-			
-		case 0x30:	//byte sent, NACK received
-			*I2CControlClear = I2CControlSet_StopCondition;
-			//@@abort
-			break;
-			
-		case 0x50:	//byte received, ACK sent
-			currentPacket->data[currentPacket->length++] = *I2CData;
-			
-			if(currentPacket->length < currentPacket->length)	*I2CControlSet = I2CControlSet_Ack;
-			else								*I2CControlClear = I2CControlSet_Ack;
-			
-			break;
-			
-		case 0x58:	//byte received, NACK sent
-			*I2CControlSet = I2CControlSet_StopCondition;
-			break;
-		
-		case 0x38:	//arbitration loss, abort
-			//boo :-(
-			break;
-		}
-		
-		*I2CControlClear = I2CControlSet_Interrupt;
-	}
-	
-	I2CPacket* currentPacket;
-};
-
-I2CCore I2CCore;
+// I2C
 
 void			IRQ_I2C(void)
 {
-	I2CCore.processEvent();
+	int status = *I2CStatus;
+	IOCore::WriteTask* currentTask = IOCore.i2cCurrentTask;
+	switch(status)
+	{
+	case 0x08:	//start bit sent
+	case 0x10:	//repeated start
+		*I2CData = currentTask->data[0];
+		*I2CControlClear = I2CControlSet_StartCondition;
+		break;
+		
+	case 0x18:	//write address ACKed, ready to write
+		*I2CData = currentTask->data[0];
+		break;
+		
+	case 0x20:	//write address NACKed, stop
+		*I2CControlSet = I2CControlSet_StopCondition;
+		
+		//@@abort packet
+		break;
+		
+	case 0x48:	//read address NACKed, stop
+		*I2CControlSet = I2CControlSet_StopCondition;
+		
+		//@@abort packet
+		break;
+		
+	case 0x40:	//read address ACKed, ready to read
+		if(currentTask->len == 1)	*I2CControlClear = I2CControlSet_Ack;
+		
+		break;
+	
+	case 0x28:	//byte sent, ACK received
+		if(currentTask->idx < currentTask->len)
+			*I2CData = currentTask->data[currentTask->idx++];
+		else
+		{
+			if(		(currentTask->next != 0)
+					&& (((IOCore::WriteTask*)(currentTask->next))->data[0] == currentTask->data[0])	//same slave?
+				)
+				*I2CControlSet = I2CControlSet_StartCondition;
+			else
+				*I2CControlSet = I2CControlSet_StopCondition;
+		}
+		break;
+		
+	case 0x30:	//byte sent, NACK received
+		*I2CControlClear = I2CControlSet_StopCondition;
+		//@@abort
+		break;
+		
+	case 0x50:	//byte received, ACK sent
+		currentTask->data[currentTask->idx++] = *I2CData;
+		
+		if(currentTask->idx < currentTask->len)	*I2CControlSet = I2CControlSet_Ack;
+		else										*I2CControlClear = I2CControlSet_Ack;
+		
+		break;
+		
+	case 0x58:	//byte received, NACK sent
+		*I2CControlSet = I2CControlSet_StopCondition;
+		break;
+	
+	case 0x38:	//arbitration loss, abort
+		//boo :-(
+		break;
+	}
+	
+	*I2CControlClear = I2CControlSet_Interrupt;
 }
 
 void	IO::I2C::start(int bitRate, IO::I2C::Role role)
@@ -713,7 +1142,7 @@ void	IO::I2C::start(int bitRate, IO::I2C::Role role)
 		*ClockControl |= ClockControl_I2C;
 		*PeripheralnReset |= PeripheralnReset_I2C;	//deassert reset
 		
-		unsigned int bitHalfPeriod = (System.getCoreFrequency() / bitRate) >> 1;
+		unsigned int bitHalfPeriod = (system.getCoreFrequency() / bitRate) >> 1;
 		//@@depending on the time-constant of the bus (1 / (pull-up resistance * capacitance)),
 		//  the low-time should be smaller and the high-time should be higher
 		*I2CClockHighTime = bitHalfPeriod;
@@ -730,12 +1159,12 @@ void	IO::I2C::start(int bitRate, IO::I2C::Role role)
 	}
 }
 
-void	IO::I2C::read(byte address, byte* s, int length, IO::I2C::RepeatedStartSetting repeatedStart)
+Task	IO::I2C::write(byte address, byte const* s, int length, IO::I2C::RepeatedStartSetting repeatedStart)
 {
-	I2CCore::I2CPacket* p = new(length) I2CCore::I2CPacket();
-}
-
-void	IO::I2C::write(byte address, byte const* s, int length, IO::I2C::RepeatedStartSetting repeatedStart)
-{
-	I2CCore::I2CPacket* p = new(length) I2CCore::I2CPacket();
+	Task task = system.createTask();
+	IOCore::WriteTask* writeTask = new(length) IOCore::WriteTask(s, length);
+	writeTask->task = task;
+	
+	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.i2cCurrentTask, writeTask);
+	return(task);
 }

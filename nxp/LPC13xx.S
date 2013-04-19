@@ -19,11 +19,11 @@
 	.type	_Sleep, %function
 	.extern _mainCRTStartup
 	.type	_mainCRTStartup, %function
+	.extern _InternalIRQ_SysTick
+	.type	_InternalIRQ_SysTick, %function
 	.extern main
 	.type	main, %function
 
-	//.extern sysTickInterrupt
-	
 	//weakly linked IRQ handlers
 	.extern IRQ_WakeupPIO0_0
 	.extern IRQ_WakeupPIO0_1
@@ -111,7 +111,7 @@ _vectors:
 	.word 	0										//Reserved
 	.word 	0										// "
 	.word 	0										//PendSV
-	.word 	0										//SysTick
+	.word 	_InternalIRQ_SysTick					//SysTick
 
 	//interrupt (IRQ) vectors
 	
