@@ -559,6 +559,13 @@ bool			System::when(Task t, void (*completion)(void* context, Task, bool success
 	return(true);
 }
 
+void			System::sleep(void) const
+{
+	//@@interrupt arming stuff
+	_Sleep();
+	//@@disarming/re-arming stuff
+}
+
 bool			System::wait(Task t, System::InvokeCallbacksOption invokeCallbacks)
 {
 	if(t._t == 0)	return(false);
