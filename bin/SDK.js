@@ -662,7 +662,7 @@ if(require.main == module)
 				}
 				else
 				{
-					console.log("Did not build successfully.  Please check the compilers warnign and errors for more information.");
+					console.log("Did not build successfully.  Please check the compiler warnings and errors list for more information.");
 				}
 				process.exit(result.returnCode);
 			}
