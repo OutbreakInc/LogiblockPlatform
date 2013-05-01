@@ -268,9 +268,23 @@ public:
 		inline int		read(char* s, int length)	{read((byte*)s, length);}
 		int				read(byte* s, int length);
 
-		inline Task		write(char c)		{return(write((byte)c));}
-		inline Task		write(short h)		{return(write((byte)h));}
-		Task			write(byte b);
+		typedef enum
+		{
+			Character,
+			UnsignedByte,
+			SignedByte,
+			UnsignedInteger16,
+			SignedInteger16,
+			UnsignedInteger32,
+			SignedInteger32
+		} Format;
+		
+		Task			write(unsigned int w, Format format = UnsignedInteger32);
+		inline Task		write(byte b, Format format = UnsignedByte)					{return(write((unsigned int)b, format));}
+		inline Task		write(char c, Format format = Character)					{return(write((unsigned int)c, format));}
+		inline Task		write(unsigned short h, Format format = UnsignedInteger16)	{return(write((unsigned int)h, format));}
+		inline Task		write(short h, Format format = SignedInteger16)				{return(write((unsigned int)h, format));}
+		inline Task		write(int w, Format format = SignedInteger32)				{return(write((unsigned int)w, format));}
 
 		inline Task		write(char const* s, int length = -1)	{return(write((byte const*)s, length));}
 		Task			write(byte const* s, int length = -1);
@@ -283,16 +297,23 @@ public:
 	Pin				p4;
 	Pin				p5;
 	Pin				p6;
+	
+	Pin				dminus;
+	Pin				dplus;
+	
 	Pin				rts;
 	Pin				cts;
 	Pin				txd;
 	Pin				rxd;
+	
 	Pin				sda;
 	Pin				scl;
+	
 	Pin				sck;
 	Pin				sel;
 	Pin				miso;
 	Pin				mosi;
+	
 	Pin				a0;
 	Pin				a1;
 	Pin				a2;

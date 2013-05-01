@@ -84,7 +84,7 @@
 	.extern IRQ_GPIO_2
 	.extern IRQ_GPIO_1
 	.extern IRQ_GPIO_0
-	
+	.extern IRQ_SPI1
 	
 	
 	//exception vector table
@@ -93,8 +93,15 @@
 	.balign  2
 	.type	_vectors, %object
 	.size	_vectors, 0x40
-	
+
 _vectors:
+
+	//this is present as a debugging aid, where gdb will show addresses at 0x0 as "Null"
+	.global Null
+	.type	Null, %object
+	.size	Null, 0x4
+Null:
+
 	//exceptions
 	.word 	STACK_TOP								//stack top
 	.word 	_start + 1								//Reset
@@ -103,7 +110,7 @@ _vectors:
 	.word 	0										//Reserved
 	.word 	0										// "
 	.word 	0										// "
-	.word 	(-STACK_TOP - 0x125 - _HardFault + 0x1B)	// ", inverse checksum of vector table entries 0-6, such that the (sum % 2^32) of the first 8 words is 0. Sneaky method here.
+	.word 	(-STACK_TOP - 0x129 - _HardFault + 0x1B)	// ", inverse checksum of vector table entries 0-6, such that the (sum % 2^32) of the first 8 words is 0. Sneaky method here.
 	.word 	0										//Reserved
 	.word 	0										// "
 	.word 	0										// "
@@ -125,6 +132,7 @@ _vectors:
 	.word 	IRQ_WakeupPIO0_7
 	.word 	IRQ_WakeupPIO0_8
 	.word 	IRQ_WakeupPIO0_9
+	
 	.word 	IRQ_WakeupPIO0_10
 	.word 	IRQ_WakeupPIO0_11
 	.word 	IRQ_WakeupPIO1_0
@@ -135,6 +143,7 @@ _vectors:
 	.word 	IRQ_WakeupPIO1_5
 	.word 	IRQ_WakeupPIO1_6
 	.word 	IRQ_WakeupPIO1_7
+	
 	.word 	IRQ_WakeupPIO1_8
 	.word 	IRQ_WakeupPIO1_9
 	.word 	IRQ_WakeupPIO1_10
@@ -145,6 +154,7 @@ _vectors:
 	.word 	IRQ_WakeupPIO2_3
 	.word 	IRQ_WakeupPIO2_4
 	.word 	IRQ_WakeupPIO2_5
+	
 	.word 	IRQ_WakeupPIO2_6
 	.word 	IRQ_WakeupPIO2_7
 	.word 	IRQ_WakeupPIO2_8
@@ -155,6 +165,7 @@ _vectors:
 	.word 	IRQ_WakeupPIO3_1
 	.word 	IRQ_WakeupPIO3_2
 	.word 	IRQ_WakeupPIO3_3
+	
 	.word 	IRQ_I2C
 	.word 	IRQ_Timer16_0
 	.word 	IRQ_Timer16_1
@@ -162,9 +173,10 @@ _vectors:
 	.word 	IRQ_Timer32_1
 	.word 	IRQ_SPI0
 	.word 	IRQ_UART
-	.word 	IRQ_USB_IRQ
-	.word 	IRQ_USB_FIQ
+	.word 	IRQ_USB_IRQ			//no function on non-USB-capable parts
+	.word 	IRQ_USB_FIQ			// "
 	.word 	IRQ_ADC
+	
 	.word 	IRQ_Watchdog
 	.word 	IRQ_Brownout
 	.word 	0					//reserved
@@ -172,6 +184,7 @@ _vectors:
 	.word 	IRQ_GPIO_2
 	.word 	IRQ_GPIO_1
 	.word 	IRQ_GPIO_0
+	.word 	IRQ_SPI1			//no function on 33-pin ICs
 	
 	//reset entrypoint
 	//.org	0x000000E0
@@ -183,7 +196,7 @@ _vectors:
 _gaunt_start:
 	//the CPU has already loaded MSP with flash[0x00000000]
 	
-	cpsid		i
+	cpsid		i				//disable interrupts
 	mov			r0,		sp
 	movs		r1,		#2
 	msr			CONTROL, r1		//switch to Process SP
@@ -194,6 +207,7 @@ _gaunt_start:
 	bl			_mainCRTStartup
 	
 freeze:
+	cpsid		i	//disable interrupts
 	bkpt		1	//@@need constants
 	b			freeze
 	
@@ -205,6 +219,7 @@ freeze:
 	.type	_HardFault, %function
 	
 _HardFault:
+	cpsid		i	//disable interrupts
 	bkpt		2	//@@need constants
 	b			_HardFault
 	
@@ -216,6 +231,7 @@ _HardFault:
 	.type	_SVCall, %function
 	
 _SVCall:
+	cpsid		i	//disable interrupts
 	bkpt		3	//@@need constants
 	b			_SVCall
 	
@@ -256,6 +272,8 @@ ignoreInterrupt:
 	
 	.code	16
 	.size	ignoreInterrupt, .-ignoreInterrupt
+	.weak	_InternalIRQ_SysTick
+	.thumb_set _InternalIRQ_SysTick,ignoreInterrupt
 	.weak	IRQ_WakeupPIO0_0
 	.thumb_set IRQ_WakeupPIO0_0,ignoreInterrupt
 	.weak	IRQ_WakeupPIO0_1
@@ -372,6 +390,8 @@ ignoreInterrupt:
 	.thumb_set IRQ_GPIO_1,ignoreInterrupt
 	.weak	IRQ_GPIO_0
 	.thumb_set IRQ_GPIO_0,ignoreInterrupt
+	.weak	IRQ_SPI1
+	.thumb_set IRQ_SPI1,ignoreInterrupt
 	
 	.weak	_start
 	.thumb_set _start,_gaunt_start
@@ -390,18 +410,16 @@ _mainNoCRTStartup:
 	push	{r4-r6,lr}
 	ldr		r4,		=__init_end
 	ldr		r5,		=__init_start
-
-Lnext$:
+Lnext:
 	cmp		r4, r5
-	beq.n		Ldone$
+	beq.n	Ldone
 	subs	r4,		4
 	ldr		r6, [r4, #0]
 	blx		r6
-	b		Lnext$
-Ldone$:
+	b.n		Lnext
+Ldone:
 	bl		main
-	pop		{r4-r6,lr}
-	bx		lr
+	b		freeze	//must not return from main
 	.balign	4
 
 ////////////////////////////////

@@ -18,10 +18,56 @@ static unsigned int* const	__heapend = (unsigned int* const)(&__heap_end__);	//a
 
 namespace Galago
 {
+	System	system;
 	IO		io;
-	System system;
 }
+
+////////////////////////////////////////////////////////////////
+//
+
+class NumberFormatter
+{
+public:
+	typedef enum
+	{
+		Hexadecimal = 16,
+		DecimalUnsigned = 10,
+		DecimalSigned = 11
+	} Base;
 	
+	static int		format(char* output, unsigned int number, int fractionBits, Base base)
+	{
+		static char const charTable[] = "0123456789ABCDEF";
+		char buf[11];
+		int len = 0;
+		bool neg = false;
+		
+		if(base == DecimalSigned)
+		{
+			base = DecimalUnsigned;
+			if(((int)number) < 0)
+			{
+				neg = true;
+				number = -number;
+			}
+		}
+		
+		do
+		{
+			buf[len++] = charTable[number % (int)base];
+			number /= (int)base;
+		}
+		while((len < 10) && (number != 0));
+		
+		if(neg)
+			buf[len++] = '-';
+		
+		for(int i = len; i > 0;)
+			*output++ = buf[--i];
+		
+		return(len);
+	}
+};
 
 ////////////////////////////////////////////////////////////////
 //
@@ -214,11 +260,15 @@ static IOCore IOCore;
 				System::System(void)
 {
 	//initialize heap
-	*(unsigned int*)__heapstart = ((__heapend - __heapstart) >> 2);
+	*(unsigned int*)__heapstart = (__heapend - __heapstart);
 	
 	//enable IO configuration
 	*ClockControl |= ClockControl_IOConfig;
-
+	
+	*InterruptEnableClear0 = (~0);
+	*InterruptEnableClear1 = (~0);
+	
+	InterruptsEnable();	//enable global interrupts
 }
 
 static unsigned int	System_getPLLInputFrequency(void)
@@ -415,7 +465,7 @@ void*			System::alloc(size_t size)
 	
 	while(m < __heapend)
 	{
-		unsigned int bs = *m & kHeapFlagMask;
+		unsigned int bs = *m & ~kHeapFlagMask;
 		//look for an unallocated block big enough to fit this allocation
 		if(!(*m & kHeapAllocated) && (s < bs))
 		{
@@ -679,7 +729,7 @@ enum
 
 
 //Pin feature and mode lookup tables
-static unsigned int const kPinSupportsGPIO =(0xFFFFFFF & ~(_BIT(PIN_DP)) | _BIT(PIN_DM));
+static unsigned int const kPinSupportsGPIO = (0xFFFFFFF & ~(_BIT(PIN_DP) | _BIT(PIN_DM)));
 static unsigned int const kPinSupportsADC =	(_BIT(PIN_A0) | _BIT(PIN_A1) | _BIT(PIN_A2) | _BIT(PIN_A3)
 	| _BIT(PIN_A5) | _BIT(PIN_A7));
 static unsigned int const kPinSupportsI2C =	(_BIT(PIN_SCL) | _BIT(PIN_SDA));
@@ -701,9 +751,9 @@ static unsigned int const kPinFunc2IsPWM =	(_BIT(PIN_P1) | _BIT(PIN_MISO) | _BIT
 
 
 #define PIN_STATE(pinID, ioPort, ioPinNumber)		((ioPort << 24) | (ioPinNumber << 16) | pinID)
-#define PIN_ID(v)					(v >> 16)
-#define PIN_IO_PORT(v)				((v >> 8) & 0xFF)
-#define PIN_IO_PIN_NUM(v)			(v & 0xFF)
+#define PIN_ID(v)					(v & 0xFF)
+#define PIN_IO_PORT(v)				(v >> 24)
+#define PIN_IO_PIN_NUM(v)			((v >> 16) & 0xFF)
 #define PIN_GPIO_DATA_PORT(port)	REGISTER_ADDRESS(0x50000000 | (port << 16))
 #define PIN_GPIO_DIR_PORT(port)		REGISTER_ADDRESS(0x50008000 | (port << 16))
 static unsigned int const kIOPinChart[] =	//@@this could be reduced to 1/4 its size to save 78 bytes :-o
@@ -749,14 +799,14 @@ static unsigned char const IO_ioConfigForPin[] =
 	0x48, 0x9C,									//D-, D+
 	0xA0, 0x50, 0xA8, 0xA4,						//RTS, CTS, TXD, RXD
 	0x34, 0x30,									//SDA, SCL
-	0x4C, 0x0C, 0x60, 0x64,						//SCK, SEL, MISO, MOSI
+	0x4C, 0x08, 0x60, 0x64,						//SCK, SEL, MISO, MOSI
 	0x74, 0x78, 0x7C, 0x80, 0x94, 0x98,			//A0, A1, A2, A3, A5, A7
 	0x6C,										//LED
 };
 
 				IO::IO(void)
 {
-	*IOConfigSCKLocation = 2;	//put SCK0 on pin pio0.6, labeled 'SCK' on Galago
+	*IOConfigSCKLocation = IOConfigSCKLocation_PIO0_6;	//put SCK0 on pin pio0.6, labeled 'SCK' on Galago
 	
 	//@@find a way to defer this via refcount with debouncing to avoid unnecessary power transitions and warm-up
 	*PowerDownControl |= PowerDownControl_ADC;	//power on the ADC
@@ -801,7 +851,7 @@ int				IO::Pin::read(void)
 }
 void			IO::Pin::write(int value)
 {
-	PIN_GPIO_DATA_PORT(PIN_IO_PORT(v))[1 << PIN_IO_PIN_NUM(v)] = (1 << PIN_IO_PIN_NUM(v));
+	PIN_GPIO_DATA_PORT(PIN_IO_PORT(v))[1 << PIN_IO_PIN_NUM(v)] = (value ? (~0) : 0);
 }
 
 Task			IO::Pin::readAnalog(unsigned int* result)
@@ -835,6 +885,12 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 	
 	REGISTER pinConfig = PIN_IOCONFIG_ADDRESS(id);
 	
+	//no longer true:
+		//on Galago, the default for any pin in a GPIO input except the reset pin (P0), which defaults to reset
+	if(mode == IO::Pin::Default)
+		mode = IO::Pin::DigitalInput;
+		//mode = (id == PIN_P0)? IO::Pin::Reset : IO::Pin::DigitalInput;
+	
 	switch(mode)
 	{
 	case IO::Pin::DigitalInput:
@@ -842,8 +898,8 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 		{
 			if(kPinSupportsGPIO & mask)
 			{
-				*pinConfig &= ~0x3;
-				if(kPinFunc1IsGPIO & (1 << id))	*pinConfig |= 1;	//else mode is 0
+				if(kPinFunc1IsGPIO & mask)	*pinConfig = (*pinConfig & ~0x7) | 1;	//for some pins, GPIO is mode 1
+				else						*pinConfig &= ~0x7;						//else mode is 0
 				
 				unsigned int bit = (1 << PIN_IO_PIN_NUM(v));
 				REGISTER gpioDirPort = PIN_GPIO_DIR_PORT(PIN_IO_PORT(v));
@@ -856,49 +912,43 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 	case IO::Pin::AnalogInput:
 		if(kPinSupportsADC & mask)
 		{
-			*pinConfig &= ~0x3;
-			*pinConfig |= ((kPinFunc1IsADC & (1 << id))? 1 : 2);
+			*pinConfig = (*pinConfig & ~0x7) | ((kPinFunc1IsADC & mask)? 1 : 2);
 		}
 		break;
 	case IO::Pin::Reset:
 		if(id == PIN_P0)	//only gpio0.0 has reset ability
 		{
-			*pinConfig &= ~0x3;
+			*pinConfig &= ~0x7;
 			//it so happens mode 0 is reset on gpio0.0, so leave it
 		}
 		break;
 	case IO::Pin::SPI:
 		if(kPinSupportsSPI & mask)
 		{
-			*pinConfig &= ~0x3;
-			*pinConfig |= ((id == PIN_SCK)? 2 : 1);
+			*pinConfig = (*pinConfig & ~0x7) | ((id == PIN_SCK)? 2 : 1);
 		}
 		break;
 	case IO::Pin::I2C:
 		if(kPinSupportsI2C & mask)
 		{
-			*pinConfig &= ~0x3;
-			*pinConfig |= 1;
+			*pinConfig = (*pinConfig & ~0x7) | 1;
 		}
 		break;
 	case IO::Pin::UART:
 		if(kPinSupportsUART & mask)
 		{
-			*pinConfig &= ~0x3;
-			*pinConfig |= 1;
+			*pinConfig = (*pinConfig & ~0x7) | 1;
 		}
 		break;
 	case IO::Pin::PWM:
 		if(kPinSupportsPWM & mask)
 		{
-			*pinConfig &= ~0x3;
-			if(id == PIN_P5)	*pinConfig |= 1;
-			else				*pinConfig |= ((kPinFunc2IsPWM & (1 << id))? 2 : 3);
+			if(id == PIN_P5)	*pinConfig = (*pinConfig & ~0x7) | 1;
+			else				*pinConfig = (*pinConfig & ~0x7) | ((kPinFunc2IsPWM & mask)? 2 : 3);
 		}
 		break;
 
 	case IO::Pin::Manual:
-	case IO::Pin::Default:
 		break;
 	}
 }
@@ -992,6 +1042,10 @@ void		IO::UART::start(int baudRate, Mode mode)
 		int d = 1;
 		
 		IO::UART::startWithExplicitRatio(q, n, d, mode);
+		
+		//@@ It remains a point of debate whether peripherals should change pin state...
+		io.txd.setMode(IO::Pin::UART);
+		io.rxd.setMode(IO::Pin::UART);
 	}
 	else	//else shut down the UART
 	{
@@ -1000,6 +1054,10 @@ void		IO::UART::start(int baudRate, Mode mode)
 		*UARTFIFOControl = (UARTFIFOControl_RxReset | UARTFIFOControl_TxReset);	//disable and reset
 		
 		*ClockControl &= ~ClockControl_UART;
+		
+		//@@ It remains a point of debate whether peripherals should change pin state...
+		io.txd.setMode(IO::Pin::Default);
+		io.rxd.setMode(IO::Pin::Default);
 	}
 }
 void		IO::UART::startWithExplicitRatio(int divider, int fracN, int fracD, Mode mode)
@@ -1071,6 +1129,32 @@ int		IO::UART::read(byte* s, int length)
 	return(IOCore.uartReceiveBuffer->read(s, length));
 }
 
+//Character,
+//UnsignedByte,
+//SignedByte,
+//UnsignedInteger16,
+//SignedInteger16,
+//UnsignedInteger32,
+//SignedInteger32
+
+Task		IO::UART::write(unsigned int w, IO::UART::Format format)
+{
+	char buffer[11];
+	int length = 0;
+	if(format == Character)
+	{
+		buffer[0] = (char)w;
+		length = 1;
+	}
+	else
+	{
+		length = NumberFormatter::format(	buffer, w,
+											((int)format) & ~1,
+											(((int)format) & 1)? NumberFormatter::DecimalSigned : NumberFormatter::DecimalUnsigned
+										);
+	}
+	return(write((byte const*)buffer, length));
+}
 
 Task		IO::UART::write(byte const* s, int length)
 {
