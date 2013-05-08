@@ -925,18 +925,18 @@
 	//UART
 	REGISTER	UARTData =					REGISTER_ADDRESS(0x40008000);	//accessible only when DLAB = 0
 	REGISTER	UARTInterrupts =			REGISTER_ADDRESS(0x40008004);	// "
+		enum UARTInterruptsActive
+		{
+			UARTInterrupts_ReceivedData		=	(0x01),
+			UARTInterrupts_TransmitterEmpty	=	(0x02),
+			UARTInterrupts_RxLineStatus		=	(0x04),
+			
+			UARTInterrupts_AutoBaudComplete	=	(0x100),
+			UARTInterrupts_AutoBaudTimeout	=	(0x200),
+		};
 	REGISTER	UARTDivisorLow =			REGISTER_ADDRESS(0x40008000);	//accessible only when DLAB = 1
 	REGISTER	UARTDivisorHigh =			REGISTER_ADDRESS(0x40008004);	// "
 	REGISTER	UARTInterruptsActive =		REGISTER_ADDRESS(0x40008008);	//read-only
-		enum UARTInterruptsActive
-		{
-			UARTInterruptsActive_ReceivedData		=	(0x01),
-			UARTInterruptsActive_THRE				=	(0x02),
-			UARTInterruptsActive_RxLineStatus		=	(0x04),
-			
-			UARTInterruptsActive_AutoBaudComplete	=	(0x100),
-			UARTInterruptsActive_AutoBaudTimeout	=	(0x200),
-		};
 	REGISTER	UARTFIFOControl =			REGISTER_ADDRESS(0x40008008);	//write-only
 		enum UARTFIFOControl
 		{

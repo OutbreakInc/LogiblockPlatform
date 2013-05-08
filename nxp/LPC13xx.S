@@ -122,7 +122,7 @@ Null:
 
 	//interrupt (IRQ) vectors
 	
-	.word 	IRQ_WakeupPIO0_0
+	.word 	IRQ_WakeupPIO0_0		//16
 	.word 	IRQ_WakeupPIO0_1
 	.word 	IRQ_WakeupPIO0_2
 	.word 	IRQ_WakeupPIO0_3
@@ -139,7 +139,7 @@ Null:
 	.word 	IRQ_WakeupPIO1_1
 	.word 	IRQ_WakeupPIO1_2
 	.word 	IRQ_WakeupPIO1_3
-	.word 	IRQ_WakeupPIO1_4
+	.word 	IRQ_WakeupPIO1_4		//32
 	.word 	IRQ_WakeupPIO1_5
 	.word 	IRQ_WakeupPIO1_6
 	.word 	IRQ_WakeupPIO1_7
@@ -157,7 +157,7 @@ Null:
 	
 	.word 	IRQ_WakeupPIO2_6
 	.word 	IRQ_WakeupPIO2_7
-	.word 	IRQ_WakeupPIO2_8
+	.word 	IRQ_WakeupPIO2_8		//48
 	.word 	IRQ_WakeupPIO2_9
 	.word 	IRQ_WakeupPIO2_10
 	.word 	IRQ_WakeupPIO2_11
@@ -166,7 +166,7 @@ Null:
 	.word 	IRQ_WakeupPIO3_2
 	.word 	IRQ_WakeupPIO3_3
 	
-	.word 	IRQ_I2C
+	.word 	IRQ_I2C					//56
 	.word 	IRQ_Timer16_0
 	.word 	IRQ_Timer16_1
 	.word 	IRQ_Timer32_0
@@ -174,7 +174,7 @@ Null:
 	.word 	IRQ_SPI0
 	.word 	IRQ_UART
 	.word 	IRQ_USB_IRQ			//no function on non-USB-capable parts
-	.word 	IRQ_USB_FIQ			// "
+	.word 	IRQ_USB_FIQ			// "	64
 	.word 	IRQ_ADC
 	
 	.word 	IRQ_Watchdog
