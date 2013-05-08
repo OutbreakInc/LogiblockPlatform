@@ -456,7 +456,8 @@ static const unsigned int kHeapAllocated = 0x80000000;
 //static
 void*			System::alloc(size_t size)
 {
-	if(size == 0)	return(0);	//@@throw
+	if(size == 0)
+		return(0);	//@@throw?
 	
 	unsigned int* m = (unsigned int*)__heapstart;
 	
@@ -483,7 +484,8 @@ void*			System::alloc(size_t size)
 		}
 		m += bs;
 	}
-	return(0);	//@@throw
+	//return(0);	//@@throw
+	__asm volatile("bkpt 7"::);	//@@need constants: this is OOM
 }
 
 //static
@@ -492,7 +494,7 @@ void			System::free(void* allocation)
 	unsigned int* a = (unsigned int*)allocation;
 	
 	if((a < __heapstart) || (a >= __heapend) || !(a[-1] & kHeapAllocated))
-		return;	//@@throw
+		return;	//@@throw?
 	
 	a--;	//unwrap
 	*a &= ~kHeapAllocated;	//free block
@@ -1041,15 +1043,16 @@ void		IO::UART::start(int baudRate, Mode mode)
 		int n = 0;
 		int d = 1;
 		
-		IO::UART::startWithExplicitRatio(q, n, d, mode);
-		
 		//@@ It remains a point of debate whether peripherals should change pin state...
 		io.txd.setMode(IO::Pin::UART);
 		io.rxd.setMode(IO::Pin::UART);
+		
+		IO::UART::startWithExplicitRatio(q, n, d, mode);
 	}
 	else	//else shut down the UART
 	{
-		*InterruptEnableClear1 |= Interrupt1_UART;	//disable UART interrupt
+		*UARTInterrupts = 0;
+		*InterruptEnableClear1 = Interrupt1_UART;	//disable UART interrupt in the interrupt controller
 		
 		*UARTFIFOControl = (UARTFIFOControl_RxReset | UARTFIFOControl_TxReset);	//disable and reset
 		
@@ -1070,14 +1073,16 @@ void		IO::UART::startWithExplicitRatio(int divider, int fracN, int fracD, Mode m
 	*UARTDivisorLow = divider & 0xFF;		//write divisor bytes
 	*UARTDivisorHigh = (divider >> 8) & 0xFF;
 	
-	*UARTLineControl &= ~UARTLineControl_DivisorLatch;	//exit DLAB state
+	*UARTLineControl = (mode & 0xFF);	//exit DLAB state
 	*UARTModemControl = (mode >> 8) & 0xC7;
 	
 	*UARTFIFOControl |= (UARTFIFOControl_Enable | UARTFIFOControl_RxReset | UARTFIFOControl_TxReset | UARTFIFOControl_RxInterrupt1Char);
 	
 	(void)*UARTLineStatus;	//clear status
 	
-	*InterruptEnableSet1 |= Interrupt1_UART; //set up UART interrupt
+	//set up UART interrupt
+	*InterruptEnableSet1 = Interrupt1_UART;	//enable UART interrupts in the interrupt controller
+	*UARTInterrupts = UARTInterrupts_ReceivedData | UARTInterrupts_RxLineStatus;	//enable conditions for the UART to interrupt
 }
 
 extern "C"
@@ -1105,18 +1110,14 @@ void	IRQ_UART(void)
 			IOCore.uartCurrentWriteTask = (IOCore::WriteTask*)writeTask->next;
 			system.completeTask(writeTask->task);
 			delete writeTask;
+			
+			if(IOCore.uartCurrentWriteTask == 0)
+				*UARTInterrupts &= ~UARTInterrupts_TransmitterEmpty;	//stop being notified on TX ready
 		}
 		else
-		{
-			//would set interrupt on non-full/empty tx buffer, but the LPC1xx's 16C550 implementation doesn't have one
-			//  so we have to resort to polling :-(
-			//  a period of 50us-60us supports megabaud rates
-			
-			//@@todo: poll
-			
-			break;	//don't move to the next packet
-		}
+			break;	//don't move to the next packet yet
 	}
+	
 }
 
 int		IO::UART::read(byte* s, int length)
@@ -1163,6 +1164,7 @@ Task		IO::UART::write(byte const* s, int length)
 	writeTask->task = task;
 	
 	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.uartCurrentWriteTask, writeTask);
+	*UARTInterrupts |= UARTInterrupts_TransmitterEmpty;	//notify when we can send bytes
 	
 	return(task);
 }

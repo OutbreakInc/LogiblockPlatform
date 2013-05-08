@@ -238,8 +238,8 @@ public:
 			CharsAre7Bit			=	(0x02),
 			CharsAre8Bit			=	(0x03),
 			
-			NoStopBit				=	(0x00),
-			UseStopBit				=	(0x04),
+			OneStopBit				=	(0x00),
+			TwoStopBits				=	(0x04),
 			
 			NoParity				=	(0x00),
 			UseOddParity			=	(0x08 | (0x00 << 4)),
@@ -255,7 +255,7 @@ public:
 			Event_ErrorReceived,
 		} Event;
 		
-		void			start(int baudRate = 9600, Mode mode = (CharsAre8Bit | NoParity | UseStopBit));
+		void			start(int baudRate = 9600, Mode mode = (CharsAre8Bit | NoParity | OneStopBit));
 		void			startWithExplicitRatio(int divider, int fracN, int fracD, Mode mode);
 		inline void		stop(void)	{start(0);}
 		
