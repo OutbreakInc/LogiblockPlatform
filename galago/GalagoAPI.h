@@ -260,18 +260,16 @@ public:
 			ErrorReceived,
 		} Event;
 		
-		typedef void	(*UARTCallback)(void* receiver, UART& uart, Event event);
-		
-		void			start(		int baudRate = 9600,
-									Mode mode = Default,
-									UART::UARTCallback callback = 0,
-									void* callbackContext = 0
-								);
+		void			start(int baudRate = 9600, Mode mode = Default);
 		void			startWithExplicitRatio(int divider, int fracN, int fracD, Mode mode);
 		inline void		stop(void)	{start(0);}
 		
 		int				bytesAvailable(void) const;
-
+		
+		//returns a task which is completed when the next byte(s) are received.
+		//  To listen for more bytes, call this again and wait/call-back on the new task it returns.
+		Task			bytesReceived(void);
+		
 		//these functions are synchronous and nonblocking, returning only what's in the buffer (and not waiting for data)
 		inline int		read(char* s, int length)	{read((byte*)s, length);}
 		int				read(byte* s, int length);

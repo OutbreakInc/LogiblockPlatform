@@ -237,14 +237,18 @@ struct IOCore
 		}
 	};
 	
+	struct UARTRecvTask
+	{
+		Task			task;
+	};
+	
 	TimerTask*		timerCurrentTask;
 	
 	ADCTask*		adcCurrentTask;
 	
 	CircularBuffer*	uartReceiveBuffer;
+	UARTRecvTask*	uartRecvTask;
 	WriteTask*		uartCurrentWriteTask;
-	IO::UART::UARTCallback	uartRXCallback;
-	void*			uartRXContext;
 	
 	WriteTask*		i2cCurrentTask;
 	
@@ -254,9 +258,8 @@ struct IOCore
 						timerCurrentTask(0),
 						adcCurrentTask(0),
 						uartReceiveBuffer(0),
+						uartRecvTask(0),
 						uartCurrentWriteTask(0),
-						uartRXCallback(0),
-						uartRXContext(0),
 						i2cCurrentTask(0),
 						spiCurrentTask(0)
 	{
@@ -1064,7 +1067,7 @@ Task			IO::SPI::write(unsigned short const* s, int length, byte* bytesReadBack)
 ////////////////////////////////////////////////////////////////
 //
 
-void		IO::UART::start(int baudRate, Mode mode, UART::UARTCallback callback, void* callbackContext)
+void		IO::UART::start(int baudRate, Mode mode)
 {
 	if(baudRate > 0)
 	{
@@ -1079,9 +1082,6 @@ void		IO::UART::start(int baudRate, Mode mode, UART::UARTCallback callback, void
 		if(IOCore.uartReceiveBuffer == 0)
 			IOCore.uartReceiveBuffer = new(32) CircularBuffer(32);	//make parametric?
 		
-		IOCore.uartRXCallback = callback;
-		IOCore.uartRXContext = callbackContext;
-		
 		IO::UART::startWithExplicitRatio(q, n, d, mode);
 	}
 	else	//else shut down the UART
@@ -1095,9 +1095,6 @@ void		IO::UART::start(int baudRate, Mode mode, UART::UARTCallback callback, void
 		
 		delete IOCore.uartReceiveBuffer;
 		IOCore.uartReceiveBuffer = 0;
-		
-		IOCore.uartRXCallback = 0;
-		IOCore.uartRXContext = 0;
 		
 		//@@ It remains a point of debate whether peripherals should change pin state...
 		io.txd.setMode(IO::Pin::Default);
@@ -1129,6 +1126,18 @@ void		IO::UART::startWithExplicitRatio(int divider, int fracN, int fracD, Mode m
 int			IO::UART::bytesAvailable(void) const
 {
 	return((IOCore.uartReceiveBuffer != 0)? IOCore.uartReceiveBuffer->bytesUsed() : 0);
+}
+
+//return the current UART receive task, creating one if none exists
+Task		IO::UART::bytesReceived(void)
+{
+	if(IOCore.uartRecvTask == 0)
+	{
+		Task newTask = system.createTask();
+		IOCore.uartRecvTask = new IOCore::UARTRecvTask();
+		IOCore.uartRecvTask->task = newTask;
+	}
+	return(IOCore.uartRecvTask->task);
 }
 
 extern "C"
