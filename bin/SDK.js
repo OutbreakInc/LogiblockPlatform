@@ -183,13 +183,14 @@ Toolchain.prototype =
 			});
 		
 		//resolve and add sources
+		//@@check existence of .files property, error in a helpful way if missing
 		args = args.concat(this.resolvePaths(project.files, pathsTable, "project"));
-
+		
 		//compile!
 		var compilerPath = path.join(pathsTable.sdk, "bin", "arm-none-eabi-g++");
 		
 		//@@if verbose mode
-		//console.log("compilerPath=", compilerPath, "args=", args);
+		console.log("compilerPath=", compilerPath, "args=", args);
 		
 		var separator = (process.platform == "win32")? ";" : ":";
 		var compiler = childProcess.spawn(compilerPath, args,
@@ -535,12 +536,20 @@ Compiler.prototype =
 			project.open(function(err, moduleJson)
 			{
 				if(err)	return(callback(err));
-				var targetName = moduleJson.compatibleWith[0];	//@@hack!
 				
-				var settings = ths.targets.resolve(targetName, moduleJson);
+				var settings;
 				
-				if(!settings)
-					return(callback(new Error("Could not resolve target '" + targetName + "'")));
+				if((moduleJson.compatibleWith != undefined) && (moduleJson.compatibleWith.length > 0))
+				{
+					var targetName = moduleJson.compatibleWith[0];	//@@hack!
+					
+					settings = ths.targets.resolve(targetName, moduleJson);
+					
+					if(!settings)
+						return(callback(new Error("Could not resolve target '" + targetName + "'")));
+				}
+				else
+					settings = moduleJson;	//no dependencies	//@@should this be implemented as targets.resolve(undefined, {...})?
 				
 				var deps = [];
 				//resolve dependencies
@@ -653,7 +662,7 @@ if(require.main == module)
 				}
 				else
 				{
-					console.log("Did not build successfully.  Please check the compilers warnign and errors for more information.");
+					console.log("Did not build successfully.  Please check the compiler warnings and errors list for more information.");
 				}
 				process.exit(result.returnCode);
 			}
