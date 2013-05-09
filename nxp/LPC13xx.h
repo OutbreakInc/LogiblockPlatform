@@ -1258,13 +1258,8 @@
 	} //ns
 	#endif //__cplusplus
 
-	#ifdef __arm__
-		#define	InterruptsDisable()					__asm volatile ("CPSID i" ::)
-		#define	InterruptsEnable()					__asm volatile ("CPSIE i" ::)
-	#else
-		#define	InterruptsDisable()					do{}while(0)
-		#define	InterruptsEnable()					do{}while(0)
-	#endif //__arm__
+	#define	InterruptsDisable()					__asm volatile ("CPSID i" ::)
+	#define	InterruptsEnable()					__asm volatile ("CPSIE i" ::)
 	
 	#ifdef __cplusplus
 	extern "C" {

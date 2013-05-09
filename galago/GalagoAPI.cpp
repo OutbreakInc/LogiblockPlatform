@@ -171,6 +171,23 @@ int		CircularBuffer::read(byte* b, int length)
 	return(count);
 }
 
+int		CircularBuffer::bytesUsed(void) const
+{
+	if(_tail > _head)
+		return((_end - _tail) + (_head - _start));
+	else
+		return(_head - _tail);
+}
+
+int		CircularBuffer::bytesFree(void) const
+{
+	if(_tail > _head)
+		return(_head - _tail);
+	else
+		return((_end - _tail) + (_head - _start));
+}
+
+
 ////////////////////////////////////////////////////////////////
 // IOCore
 
@@ -226,6 +243,8 @@ struct IOCore
 	
 	CircularBuffer*	uartReceiveBuffer;
 	WriteTask*		uartCurrentWriteTask;
+	IO::UART::UARTCallback	uartRXCallback;
+	void*			uartRXContext;
 	
 	WriteTask*		i2cCurrentTask;
 	
@@ -236,6 +255,8 @@ struct IOCore
 						adcCurrentTask(0),
 						uartReceiveBuffer(0),
 						uartCurrentWriteTask(0),
+						uartRXCallback(0),
+						uartRXContext(0),
 						i2cCurrentTask(0),
 						spiCurrentTask(0)
 	{
@@ -817,6 +838,8 @@ static unsigned char const IO_ioConfigForPin[] =
 	for(int i = 0; i < 26; i++)
 		*p++ = Pin(kIOPinChart[i]);
 	
+	led = 1;	//!LED deasserted (unlit) initially
+	
 	//enable interrupts we need for IO: I2C, the Timers, SPI0, UART and the ADC.
 	*InterruptEnableSet1 = Interrupt1_I2C
 		| Interrupt1_Timer0 | Interrupt1_Timer1 | Interrupt1_Timer2 | Interrupt1_Timer3
@@ -893,9 +916,10 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 	REGISTER pinConfig = PIN_IOCONFIG_ADDRESS(id);
 	
 	//no longer true:
-		//on Galago, the default for any pin in a GPIO input except the reset pin (P0), which defaults to reset
+		//on Galago, the default for any pin is as a GPIO input except the LED, which defaults to an output, initially deasserted
 	if(mode == IO::Pin::Default)
-		mode = IO::Pin::DigitalInput;
+		mode = (id == PIN_LED)? IO::Pin::DigitalOutput : IO::Pin::DigitalInput;
+		//mode = IO::Pin::DigitalInput;
 		//mode = (id == PIN_P0)? IO::Pin::Reset : IO::Pin::DigitalInput;
 	
 	switch(mode)
@@ -1040,7 +1064,7 @@ Task			IO::SPI::write(unsigned short const* s, int length, byte* bytesReadBack)
 ////////////////////////////////////////////////////////////////
 //
 
-void		IO::UART::start(int baudRate, Mode mode)
+void		IO::UART::start(int baudRate, Mode mode, UART::UARTCallback callback, void* callbackContext)
 {
 	if(baudRate > 0)
 	{
@@ -1052,6 +1076,12 @@ void		IO::UART::start(int baudRate, Mode mode)
 		io.txd.setMode(IO::Pin::UART);
 		io.rxd.setMode(IO::Pin::UART);
 		
+		if(IOCore.uartReceiveBuffer == 0)
+			IOCore.uartReceiveBuffer = new(32) CircularBuffer(32);	//make parametric?
+		
+		IOCore.uartRXCallback = callback;
+		IOCore.uartRXContext = callbackContext;
+		
 		IO::UART::startWithExplicitRatio(q, n, d, mode);
 	}
 	else	//else shut down the UART
@@ -1062,6 +1092,12 @@ void		IO::UART::start(int baudRate, Mode mode)
 		*UARTFIFOControl = (UARTFIFOControl_RxReset | UARTFIFOControl_TxReset);	//disable and reset
 		
 		*ClockControl &= ~ClockControl_UART;
+		
+		delete IOCore.uartReceiveBuffer;
+		IOCore.uartReceiveBuffer = 0;
+		
+		IOCore.uartRXCallback = 0;
+		IOCore.uartRXContext = 0;
 		
 		//@@ It remains a point of debate whether peripherals should change pin state...
 		io.txd.setMode(IO::Pin::Default);
@@ -1088,6 +1124,11 @@ void		IO::UART::startWithExplicitRatio(int divider, int fracN, int fracD, Mode m
 	//set up UART interrupt
 	*InterruptEnableSet1 = Interrupt1_UART;	//enable UART interrupts in the interrupt controller
 	*UARTInterrupts = (UARTInterrupts_ReceivedData | UARTInterrupts_TxBufferEmpty | UARTInterrupts_RxLineStatus);	//enable conditions for the UART to interrupt
+}
+
+int			IO::UART::bytesAvailable(void) const
+{
+	return((IOCore.uartReceiveBuffer != 0)? IOCore.uartReceiveBuffer->bytesUsed() : 0);
 }
 
 extern "C"
@@ -1117,7 +1158,7 @@ void	IRQ_UART(void)
 			delete writeTask;
 			
 			if(IOCore.uartCurrentWriteTask == 0)
-				*UARTInterrupts &= ~UARTInterrupts_TransmitterEmpty;	//stop being notified on TX ready
+				*UARTInterrupts &= ~UARTInterrupts_TxBufferEmpty;	//stop being notified on TX ready
 		}
 		else
 			break;	//don't move to the next packet yet
@@ -1165,11 +1206,21 @@ Task		IO::UART::write(unsigned int w, IO::UART::Format format)
 Task		IO::UART::write(byte const* s, int length)
 {
 	Task task = system.createTask();
+	
+	if(length < 0)
+	{
+		length = 0;
+		for(byte const* p = s; *p; p++)
+			length++;
+	}
+	
 	IOCore::WriteTask* writeTask = new(length) IOCore::WriteTask(s, length);
 	writeTask->task = task;
 	
 	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.uartCurrentWriteTask, writeTask);
-	*UARTInterrupts |= UARTInterrupts_TransmitterEmpty;	//notify when we can send bytes
+	*UARTInterrupts |= UARTInterrupts_TxBufferEmpty;	//notify when we can send bytes
+	
+	IRQ_UART();	//provoke the system: in simple cases this will transmit and complete synchronously
 	
 	return(task);
 }

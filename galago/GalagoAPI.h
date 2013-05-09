@@ -54,6 +54,9 @@ public:
 	bool	read(byte* b);
 	int		read(byte* b, int length);
 	
+	int		bytesUsed(void) const;
+	int		bytesFree(void) const;
+	
 private:
 	byte*	_start;
 	byte*	_end;
@@ -246,23 +249,28 @@ public:
 			UseEvenParity			=	(0x08 | (0x01 << 4)),
 			UseConstant1Parity		=	(0x08 | (0x02 << 4)),
 			UseConstant0Parity		=	(0x08 | (0x03 << 4)),
+			
+			Default  				=	(CharsAre8Bit | NoParity | OneStopBit)
 		};
 		typedef int		Mode;
 		
 		typedef enum
 		{
-			Event_BytesReceived,
-			Event_ErrorReceived,
+			BytesReceived,
+			ErrorReceived,
 		} Event;
 		
-		void			start(int baudRate = 9600, Mode mode = (CharsAre8Bit | NoParity | OneStopBit));
+		typedef void	(*UARTCallback)(void* receiver, UART& uart, Event event);
+		
+		void			start(		int baudRate = 9600,
+									Mode mode = Default,
+									UART::UARTCallback callback = 0,
+									void* callbackContext = 0
+								);
 		void			startWithExplicitRatio(int divider, int fracN, int fracD, Mode mode);
 		inline void		stop(void)	{start(0);}
 		
-		typedef void	(*UARTCallback)(void* receiver, UART& uart, Event event, Buffer bytes);
-		void			on(UARTCallback callback, void* context = 0);
-
-		bool			bytesAvailable(void) const;
+		int				bytesAvailable(void) const;
 
 		//these functions are synchronous and nonblocking, returning only what's in the buffer (and not waiting for data)
 		inline int		read(char* s, int length)	{read((byte*)s, length);}
