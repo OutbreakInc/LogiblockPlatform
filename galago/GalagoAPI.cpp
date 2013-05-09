@@ -757,6 +757,11 @@ static unsigned char const IO_ioConfigForPin[] =
 	Pin* p = &p0;
 	for(int i = 0; i < 26; i++)
 		*p++ = Pin(kIOPinChart[i]);
+	
+	//enable interrupts we need for IO: I2C, the Timers, SPI0, UART and the ADC.
+	*InterruptEnableSet1 = Interrupt1_I2C
+		| Interrupt1_Timer0 | Interrupt1_Timer1 | Interrupt1_Timer2 | Interrupt1_Timer3
+		| Interrupt1_SPI0 | Interrupt1_UART | Interrupt1_ADC;
 }
 
 extern "C"
@@ -1012,7 +1017,9 @@ void		IO::UART::startWithExplicitRatio(int divider, int fracN, int fracD, Mode m
 	
 	(void)*UARTLineStatus;	//clear status
 	
-	*InterruptEnableSet1 |= Interrupt1_UART; //set up UART interrupt
+	//interrupt on received data, tx buffer empty and line status
+	*UARTInterrupts = (UARTInterrupts_ReceivedData | UARTInterrupts_TxBufferEmpty | UARTInterrupts_RxLineStatus);
+	*InterruptEnableSet1 |= Interrupt1_UART; //set up UART interrupt	//@@done in IO:IO()
 }
 
 extern "C"

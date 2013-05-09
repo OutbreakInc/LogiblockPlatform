@@ -923,20 +923,21 @@
 	
 
 	//UART
-	REGISTER	UARTData =					REGISTER_ADDRESS(0x40008000);	//accessible only when DLAB = 0
+	REGISTER	UARTData =					REGISTER_ADDRESS(0x40008000);	//accessible only when UARTLineControl_DivisorLatch = 0
 	REGISTER	UARTInterrupts =			REGISTER_ADDRESS(0x40008004);	// "
-	REGISTER	UARTDivisorLow =			REGISTER_ADDRESS(0x40008000);	//accessible only when DLAB = 1
+		enum UARTInterrupts
+		{
+			UARTInterrupts_ReceivedData		=	(0x01),
+			UARTInterrupts_TxBufferEmpty	=	(0x02),
+			UARTInterrupts_RxLineStatus		=	(0x04),
+			
+			UARTInterrupts_AutoBaudComplete	=	(0x100),
+			UARTInterrupts_AutoBaudTimeout	=	(0x200),
+		};
+	REGISTER	UARTDivisorLow =			REGISTER_ADDRESS(0x40008000);	//when UARTLineControl_DivisorLatch = 1
 	REGISTER	UARTDivisorHigh =			REGISTER_ADDRESS(0x40008004);	// "
 	REGISTER	UARTInterruptsActive =		REGISTER_ADDRESS(0x40008008);	//read-only
-		enum UARTInterruptsActive
-		{
-			UARTInterruptsActive_ReceivedData		=	(0x01),
-			UARTInterruptsActive_THRE				=	(0x02),
-			UARTInterruptsActive_RxLineStatus		=	(0x04),
-			
-			UARTInterruptsActive_AutoBaudComplete	=	(0x100),
-			UARTInterruptsActive_AutoBaudTimeout	=	(0x200),
-		};
+		//(enum values are identical to UARTInterrupts)
 	REGISTER	UARTFIFOControl =			REGISTER_ADDRESS(0x40008008);	//write-only
 		enum UARTFIFOControl
 		{
@@ -1238,7 +1239,7 @@
 			Interrupt1_ADC =		(1 << 17),
 			Interrupt1_Watchdog =	(1 << 18),
 			Interrupt1_BrownOut =	(1 << 19),
-			
+			//(reserved value = 1 << 20)
 			Interrupt1_GPIO3 =		(1 << 21),
 			Interrupt1_GPIO2 =		(1 << 22),
 			Interrupt1_GPIO1 =		(1 << 23),
