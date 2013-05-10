@@ -14,13 +14,26 @@ extern int __heap_start__;
 extern int __heap_end__;
 
 static unsigned int* const	__heapstart = (unsigned int* const)(&__heap_start__);
-static unsigned int* const	__heapend = (unsigned int* const)(&__heap_end__);	//assume 512-byte stack
+static unsigned int* const	__heapend = (unsigned int* const)(&__heap_end__);
 
 namespace Galago
 {
 	System	system;
 	IO		io;
 }
+
+////////////////////////////////////////////////////////////////
+// Utility functions
+
+// not to be confused with the very similar function, strlen()
+int		stringZeroLength(byte const* s)
+{
+	int length = 0;
+	while(*s++)
+		length++;
+	return(length);
+}
+
 
 ////////////////////////////////////////////////////////////////
 //
@@ -227,7 +240,11 @@ struct IOCore
 		unsigned short	idx;
 		unsigned short	len;
 		byte			data[1];
-
+		
+						WriteTask(int l):
+							idx(0),
+							len(l)
+		{}
 						WriteTask(byte const* bytes, int l):
 							idx(0),
 							len(l)
@@ -237,9 +254,46 @@ struct IOCore
 		}
 	};
 	
-	struct UARTRecvTask
+	struct SPITask: public TaskQueueItem
 	{
-		Task			task;
+		unsigned short	len;
+		unsigned short	writeIdx;
+		unsigned short	readIdx;
+		byte			is16Bit;
+		void*			bytesReadBack;
+		union
+		{
+			byte			data[1];
+			unsigned short	data16[1];
+		};
+		
+						SPITask(int l, void* readBack, bool is16 = false):
+							len(l),
+							writeIdx(0),
+							readIdx(0),
+							is16Bit(is16),
+							bytesReadBack(readBack)
+		{}
+						SPITask(byte const* bytes, int l, void* readBack):
+							len(l),
+							writeIdx(0),
+							readIdx(0),
+							is16Bit(false),
+							bytesReadBack(readBack)
+		{
+			for(int i = 0; i < l; i++)
+				data[i] = *bytes++;
+		}
+						SPITask(unsigned short const* halves, int l, void* readBack):
+							len(l),
+							writeIdx(0),
+							readIdx(0),
+							is16Bit(true),
+							bytesReadBack(readBack)
+		{
+			for(int i = 0; i < l; i++)
+				data16[i] = *halves++;
+		}
 	};
 	
 	TimerTask*		timerCurrentTask;
@@ -247,18 +301,17 @@ struct IOCore
 	ADCTask*		adcCurrentTask;
 	
 	CircularBuffer*	uartReceiveBuffer;
-	UARTRecvTask*	uartRecvTask;
+	Task			uartRecvTask;
 	WriteTask*		uartCurrentWriteTask;
 	
 	WriteTask*		i2cCurrentTask;
 	
-	WriteTask*		spiCurrentTask;
+	SPITask*		spiCurrentTask;
 	
 					IOCore(void):
 						timerCurrentTask(0),
 						adcCurrentTask(0),
 						uartReceiveBuffer(0),
-						uartRecvTask(0),
 						uartCurrentWriteTask(0),
 						i2cCurrentTask(0),
 						spiCurrentTask(0)
@@ -990,78 +1043,133 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 ////////////////////////////////////////////////////////////////
 //
 
-void			IO::SPI::start(int bitRate, Role role, Mode mode)
+void			IO::SPI::start(int bitRate, Mode mode, Role role)
 {
 	*PeripheralnReset &= ~PeripheralnReset_SPI0;	//assert reset
 	
 	if(bitRate > 0)
 	{
 		*ClockControl |= ClockControl_SPI0;	//enable SPI0 clock
-		*SPI0ClockPrescaler = 1;
+		*SPI0ClockPrescaler = 2;	//minimum 2
 
 		*SPI0ClockDivider = (system.getCoreFrequency() >> 1) / bitRate;
-
-		*SPI0Control0 = SPI0Control0_8BitTransfer | SPI0Control0_FrameFormat_SPI | SPI0Control0_SPIMode0;
-		*SPI0Control1 = SPI0Control1_Enable;
-
+		
 		*PeripheralnReset |= PeripheralnReset_SPI0;	//deassert reset
+		
+		*SPI0Control0 = mode;	//SPI0Control0_8BitTransfer | SPI0Control0_FrameFormat_SPI | SPI0Control0_SPIMode0;
+		*SPI0Control1 = SPI0Control1_Enable;
 	}
 	else
+	{
 		*ClockControl &= ~ClockControl_SPI0;	//disable SPI0 clock
-}
-
-
-Task			IO::SPI::read(int length, byte* bytesReadBack, unsigned short writeChar)
-{
-	while(length-- > 0)
-	{
-		while(!(*SPI0Status & SPI0Status_ReceiveFIFONotEmpty));	//spinwait until the hardware can supply at least one datum
 		
-		*SPI0Data = (unsigned int)writeChar;	//append the character
-		*bytesReadBack++ = (byte)*SPI0Data;
-	}
-}
-
-Task			IO::SPI::read(int length, unsigned short* bytesReadBack, unsigned short writeChar)
-{
-	while(length-- > 0)
-	{
-		while(!(*SPI0Status & SPI0Status_ReceiveFIFONotEmpty));	//spinwait until the hardware can supply at least one datum
-		
-		*SPI0Data = (unsigned int)writeChar;	//append the character
-		*bytesReadBack++ = (unsigned short)*SPI0Data;
+		*SPI0InterruptClear = 0x0F;	//disable interrupts
 	}
 }
 
 
-Task			IO::SPI::write(unsigned short h, int length)
+void			IO_SPI_queueTask(IOCore::SPITask* spiTask)
 {
-	while(length-- > 0)
-	{
-		while(!(*SPI0Status & SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
-		*SPI0Data = (unsigned int)h;	//append the same character
-	}
+	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.spiCurrentTask, spiTask);
+	*SPI0InterruptEnable = SPI0Interrupt_TransmitFIFOHalfEmpty | SPI0Status_ReceiveFIFONotEmpty;
+}
+
+Task			IO::SPI::write(byte b, int length, byte* bytesReadBack)
+{
+	IOCore::SPITask* newTask = new(length) IOCore::SPITask(length, bytesReadBack);
+	
+	for(int i = 0; i < length; i++)
+		newTask->data[i] = b;
+	
+	IO_SPI_queueTask(newTask);
+	return(newTask->task);
+}
+
+Task			IO::SPI::write(unsigned short h, int length, unsigned short* bytesReadBack)
+{
+	IOCore::SPITask* newTask = new(length * 2) IOCore::SPITask(length, bytesReadBack, true);
+	
+	for(int i = 0; i < length; i++)
+		newTask->data16[i] = h;
+	
+	IO_SPI_queueTask(newTask);
+	return(newTask->task);
 }
 
 Task			IO::SPI::write(byte const* s, int length, byte* bytesReadBack)
 {
-	while(length-- > 0)
-	{
-		while(!(*SPI0Status & SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
-		*SPI0Data = (unsigned int)*s++;	//append the next character
-		if(bytesReadBack != 0)
-			*bytesReadBack++ = (byte)*SPI0Data;
-	}
+	if(length < 0)
+		length = stringZeroLength(s);
+	
+	IOCore::SPITask* newTask = new(length) IOCore::SPITask(s, length, bytesReadBack);
+	
+	IO_SPI_queueTask(newTask);
+	return(newTask->task);
 }
 Task			IO::SPI::write(unsigned short const* s, int length, byte* bytesReadBack)
 {
-	while(length-- > 0)
+	IOCore::SPITask* newTask = new(length * 2) IOCore::SPITask(s, length, bytesReadBack);
+	
+	IO_SPI_queueTask(newTask);
+	return(newTask->task);
+}
+
+extern "C"
+void IRQ_SPI0(void)
+{
+	//if there's a task
+		//while bytes remain to be read in the task and the FIFO has bytes
+			//read from FIFO
+		//if bytes remain to be written in the task and we can fit bytes in the FIFO
+			//write to FIFO
+		
+		//if task is done (all bytes are read)
+			//remove it
+			//complete it
+		
+		//if no tasks remain
+			//deactivate interrupt
+	//else
+		//deactivate interrupt
+	
+	IOCore::SPITask* currentTask;
+	while((currentTask = IOCore.spiCurrentTask) != 0)
 	{
-		while(!(*SPI0Status & SPI0Status_TransmitFIFONotFull));	//spinwait until the hardware can fit at least one datum
-		*SPI0Data = (unsigned int)*s++;	//append the next character
-		if(bytesReadBack != 0)
-			*bytesReadBack++ = (byte)*SPI0Data;
+		while(!(*SPI0Status & SPI0Status_ReceiveFIFOFull) && (currentTask->writeIdx < currentTask->len))
+		{
+			if(currentTask->is16Bit)
+				currentTask->data16[currentTask->readIdx++] = *SPI0Data;
+			else
+				currentTask->data[currentTask->readIdx++] = (byte)*SPI0Data;
+		}
+		
+		while(!(*SPI0Status & SPI0Status_TransmitFIFONotFull) && (currentTask->writeIdx < currentTask->len))
+		{
+			if(currentTask->is16Bit)
+				*SPI0Data = currentTask->data16[currentTask->writeIdx++];
+			else
+				*SPI0Data = currentTask->data[currentTask->writeIdx++];
+		}
+		
+		if(currentTask->readIdx == currentTask->len)
+		{
+			//for(int i = 0; i < currentTask->len; i++)
+			if(currentTask->bytesReadBack != 0)
+				//memcpy(currentTask->bytesReadBack, currentTask->data, currentTask->len);
+				for(int i = 0; i < (currentTask->is16Bit)? (currentTask->len * 2) : currentTask->len; i++)
+					*(byte*)currentTask->bytesReadBack = currentTask->data[i];
+			
+			IOCore.spiCurrentTask = (IOCore::SPITask*)currentTask->next;
+			system.completeTask(currentTask->task);
+			delete currentTask;
+			
+			continue;
+		}
+		return;
 	}
+	
+	//stop being notified on FIFO ready
+	*SPI0InterruptClear = SPI0Interrupt_TransmitFIFOHalfEmpty | SPI0Status_ReceiveFIFONotEmpty;
 }
 
 ////////////////////////////////////////////////////////////////
@@ -1095,6 +1203,7 @@ void		IO::UART::start(int baudRate, Mode mode)
 		
 		delete IOCore.uartReceiveBuffer;
 		IOCore.uartReceiveBuffer = 0;
+		system.completeTask(IOCore.uartRecvTask, false);
 		
 		//@@ It remains a point of debate whether peripherals should change pin state...
 		io.txd.setMode(IO::Pin::Default);
@@ -1131,23 +1240,29 @@ int			IO::UART::bytesAvailable(void) const
 //return the current UART receive task, creating one if none exists
 Task		IO::UART::bytesReceived(void)
 {
-	if(IOCore.uartRecvTask == 0)
-	{
-		Task newTask = system.createTask();
-		IOCore.uartRecvTask = new IOCore::UARTRecvTask();
-		IOCore.uartRecvTask->task = newTask;
-	}
-	return(IOCore.uartRecvTask->task);
+	if(IOCore.uartRecvTask == Task())
+		IOCore.uartRecvTask = system.createTask();
+	return(IOCore.uartRecvTask);
 }
 
 extern "C"
 void	IRQ_UART(void)
 {
+	bool received = false;
+	
 	//receive any available bytes
 	while(*UARTLineStatus & UARTLineStatus_ReceiverDataReady)
 	{
 		if(!IOCore.uartReceiveBuffer->write(*UARTData))
 			break;
+		
+		received = true;
+	}
+	
+	if(received && (IOCore.uartRecvTask != Task()))
+	{
+		system.completeTask(IOCore.uartRecvTask);
+		IOCore.uartRecvTask = Task();
 	}
 	
 	//do we have bytes to send?
@@ -1172,7 +1287,6 @@ void	IRQ_UART(void)
 		else
 			break;	//don't move to the next packet yet
 	}
-	
 }
 
 int		IO::UART::read(byte* s, int length)
@@ -1217,11 +1331,7 @@ Task		IO::UART::write(byte const* s, int length)
 	Task task = system.createTask();
 	
 	if(length < 0)
-	{
-		length = 0;
-		for(byte const* p = s; *p; p++)
-			length++;
-	}
+		length = stringZeroLength(s);
 	
 	IOCore::WriteTask* writeTask = new(length) IOCore::WriteTask(s, length);
 	writeTask->task = task;

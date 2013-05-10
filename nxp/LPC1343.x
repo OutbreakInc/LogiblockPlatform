@@ -11,7 +11,8 @@ SECTIONS
 	{
 		PROVIDE(stext = .);
 		KEEP(*(.isr_vector .isr_vector.*))
-		
+		*(.startup .startup.*)
+
 		. = ALIGN(4);
 		PROVIDE(__init_start = .);
 		KEEP(*(SORT(.init_array)))

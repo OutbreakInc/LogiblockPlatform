@@ -1,0 +1,232 @@
+#include <LPC13xx.h>
+
+#define STACK_TOP (MEMORY_SRAM_TOP - 4)	//@@todo: get from linker script
+
+#define WEAK_IGNORE __attribute__ ((weak, alias("ignoreInterrupt")))
+#define STARTUP	__attribute__ ((section(".startup"), used))
+
+extern "C" int main(void);
+
+extern "C" void ignoreInterrupt(void);
+
+extern "C" void _start(void) __attribute__ ((weak, alias("_gaunt_start"), used));
+extern "C" void _gaunt_start(void);
+extern "C" void _HardFault(void);
+extern "C" void _SVCall(void);
+extern "C" void _InternalIRQ_SysTick(void) WEAK_IGNORE;
+
+
+extern "C" void IRQ_WakeupPIO0_0(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO0_1(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO0_2(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO0_3(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO0_4(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO0_5(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO0_6(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO0_7(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO0_8(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO0_9(void) WEAK_IGNORE;
+
+extern "C" void IRQ_WakeupPIO0_10(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO0_11(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO1_0(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO1_1(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO1_2(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO1_3(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO1_4(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO1_5(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO1_6(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO1_7(void) WEAK_IGNORE;
+
+extern "C" void IRQ_WakeupPIO1_8(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO1_9(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO1_10(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO1_11(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO2_0(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO2_1(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO2_2(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO2_3(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO2_4(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO2_5(void) WEAK_IGNORE;
+
+extern "C" void IRQ_WakeupPIO2_6(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO2_7(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO2_8(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO2_9(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO2_10(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO2_11(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO3_0(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO3_1(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO3_2(void) WEAK_IGNORE;
+extern "C" void IRQ_WakeupPIO3_3(void) WEAK_IGNORE;
+
+extern "C" void IRQ_I2C(void) WEAK_IGNORE;
+extern "C" void IRQ_Timer16_0(void) WEAK_IGNORE;
+extern "C" void IRQ_Timer16_1(void) WEAK_IGNORE;
+extern "C" void IRQ_Timer32_0(void) WEAK_IGNORE;
+extern "C" void IRQ_Timer32_1(void) WEAK_IGNORE;
+extern "C" void IRQ_SPI0(void) WEAK_IGNORE;
+extern "C" void IRQ_UART(void) WEAK_IGNORE;
+extern "C" void IRQ_USB_IRQ(void) WEAK_IGNORE;
+extern "C" void IRQ_USB_FIQ(void) WEAK_IGNORE;
+extern "C" void IRQ_ADC(void) WEAK_IGNORE;
+
+extern "C" void IRQ_Watchdog(void) WEAK_IGNORE;
+extern "C" void IRQ_Brownout(void) WEAK_IGNORE;
+
+extern "C" void IRQ_GPIO_3(void) WEAK_IGNORE;
+extern "C" void IRQ_GPIO_2(void) WEAK_IGNORE;
+extern "C" void IRQ_GPIO_1(void) WEAK_IGNORE;
+extern "C" void IRQ_GPIO_0(void) WEAK_IGNORE;
+extern "C" void IRQ_SPI1(void) WEAK_IGNORE;
+
+
+typedef void (*IRQVector)(void);
+
+extern "C"
+IRQVector const _vectors[] __attribute__ ((section(".isr_vector"), used)) =
+{
+	(IRQVector)STACK_TOP,	// Initial stack pointer value
+	&_start,				// Reset vector
+	0,						// NMI (not present on this chip)
+	&_HardFault,			// Hard fault (bus fault etc.)
+	0,						// Reserved
+	0,						//  "
+	0,						//  "
+	(IRQVector)0xFFFFFFFF,	// Checksum, populated by post-build step
+	0,						// Reserved
+	0,						//  "
+	0,						//  "
+	&_SVCall,				// Supervisor call
+	0,						// Reserved
+	0,						//  "
+	0,						// Pending supervisor call
+	&_InternalIRQ_SysTick,	// Systick interrupt
+	
+	
+	&IRQ_WakeupPIO0_0,
+	&IRQ_WakeupPIO0_1,
+	&IRQ_WakeupPIO0_2,
+	&IRQ_WakeupPIO0_3,
+	&IRQ_WakeupPIO0_4,
+	&IRQ_WakeupPIO0_5,
+	&IRQ_WakeupPIO0_6,
+	&IRQ_WakeupPIO0_7,
+	&IRQ_WakeupPIO0_8,
+	&IRQ_WakeupPIO0_9,
+
+	&IRQ_WakeupPIO0_10,
+	&IRQ_WakeupPIO0_11,
+	&IRQ_WakeupPIO1_0,
+	&IRQ_WakeupPIO1_1,
+	&IRQ_WakeupPIO1_2,
+	&IRQ_WakeupPIO1_3,
+	&IRQ_WakeupPIO1_4,
+	&IRQ_WakeupPIO1_5,
+	&IRQ_WakeupPIO1_6,
+	&IRQ_WakeupPIO1_7,
+
+	&IRQ_WakeupPIO1_8,
+	&IRQ_WakeupPIO1_9,
+	&IRQ_WakeupPIO1_10,
+	&IRQ_WakeupPIO1_11,
+	&IRQ_WakeupPIO2_0,
+	&IRQ_WakeupPIO2_1,
+	&IRQ_WakeupPIO2_2,
+	&IRQ_WakeupPIO2_3,
+	&IRQ_WakeupPIO2_4,
+	&IRQ_WakeupPIO2_5,
+
+	&IRQ_WakeupPIO2_6,
+	&IRQ_WakeupPIO2_7,
+	&IRQ_WakeupPIO2_8,
+	&IRQ_WakeupPIO2_9,
+	&IRQ_WakeupPIO2_10,
+	&IRQ_WakeupPIO2_11,
+	&IRQ_WakeupPIO3_0,
+	&IRQ_WakeupPIO3_1,
+	&IRQ_WakeupPIO3_2,
+	&IRQ_WakeupPIO3_3,
+
+	&IRQ_I2C,
+	&IRQ_Timer16_0,
+	&IRQ_Timer16_1,
+	&IRQ_Timer32_0,
+	&IRQ_Timer32_1,
+	&IRQ_SPI0,
+	&IRQ_UART,
+	&IRQ_USB_IRQ,
+	&IRQ_USB_FIQ,
+	&IRQ_ADC,
+
+	&IRQ_Watchdog,
+	&IRQ_Brownout,
+	0,
+	&IRQ_GPIO_3,
+	&IRQ_GPIO_2,
+	&IRQ_GPIO_1,
+	&IRQ_GPIO_0,
+	&IRQ_SPI1
+};
+
+extern "C" void STARTUP __attribute__((naked)) _gaunt_start(void)
+{
+	__asm__ volatile (
+	"cpsid		i				\n"		//disable interrupts
+	"mov		r0,		sp		\n"
+	"movs		r1,		#2		\n"
+	"msr		CONTROL, r1		\n"		//switch to Process SP
+	"mov		sp,		r0		\n"		//set PSP = MSP
+	"movs		r2,		#0		\n"
+	"msr		CONTROL, r2		\n"		//switch back to Main SP
+	"isb.w						\n"		//invoke an instuction sync barrier to ensure subsequent stack usage is correct
+	
+	//annoyingly, I couldn't get this to generate correct asm, hence the inline asm version below
+	// void (**p)(void) = __init_end;
+	// while(p-- != __init_start)
+	//   (*p)();
+	
+	"ldr		r0,		=__init_end		\n"
+	"ldr		r1,		=__init_start	\n"
+	"._start_next_ctor:					\n"
+	"cmp		r0, r1					\n"
+	"beq.n		._start_ctors_done		\n"
+	"subs		r0,		4				\n"
+	"ldr		r2, [r0, #0]			\n"
+	"blx		r2						\n"
+	"b.n		._start_next_ctor		\n"
+	"._start_ctors_done:				\n"
+	::: "r0", "r1", "r2");
+	
+	main();
+	_HardFault();
+}
+
+extern "C" void STARTUP _HardFault(void)
+{
+	while(true)
+		__asm__ volatile ("bkpt 2"::);
+}
+
+extern "C" void STARTUP _SVCall(void)
+{
+}
+
+extern "C" void STARTUP _Sleep(void)
+{
+	//@@enter PMU state
+	__asm__ volatile ("wfi"::);
+	//@@exit PMU state
+}
+
+extern "C" void STARTUP ignoreInterrupt(void)
+{
+}
+
+
+void* __dso_handle = 0;
+
+extern "C" int __aeabi_atexit(void* object, void (*destroyer)(void*), void* dso_handle)
+{
+	return(0);	//firmware never exits
+}

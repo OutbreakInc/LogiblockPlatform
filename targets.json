@@ -30,7 +30,7 @@
 				{
 					"base": "platform",
 					"dir": "nxp",
-					"name": "LPC13xx.S"
+					"name": "LPC13xx.cpp"
 				}
 			],
 			"include":

@@ -40,7 +40,7 @@ class Task
 	private:	inline static void		refer(InternalTask* t)	{if(t)	t->_rc++;}
 	private:	static void				release(InternalTask* t);
 	
-	private:	InternalTask*	_t;
+	private:	InternalTask*			_t;
 };
 
 struct CircularBuffer
@@ -176,32 +176,49 @@ public:
 			Slave,
 		} Role;
 		
-		typedef enum
+		enum
 		{
-			Mode0,	//SCK idles low, data changed on SCK's falling edge, read on rising edge.
-			Mode1,	//SCK idles low, data changed on SCK's rising edge, read on falling edge.
-			Mode2,	//SCK idles high, data changed on SCK's falling edge, read on rising edge.
-			Mode3,	//SCK idles high, data changed on SCK's rising edge, read on falling edge.
-		} Mode;
-
-		void			start(int bitRate = 2000000UL, Role role = Master, Mode mode = Mode0);
+			CharsAre4Bit	=	(0x03),
+			CharsAre5Bit	=	(0x04),
+			CharsAre6Bit	=	(0x05),
+			CharsAre7Bit	=	(0x06),
+			CharsAre8Bit	=	(0x07),
+			CharsAre9Bit	=	(0x08),
+			CharsAre10Bit	=	(0x09),
+			CharsAre11Bit	=	(0x0A),
+			CharsAre12Bit	=	(0x0B),
+			CharsAre13Bit	=	(0x0C),
+			CharsAre14Bit	=	(0x0D),
+			CharsAre15Bit	=	(0x0E),
+			CharsAre16Bit	=	(0x0F),
+			
+			Mode0			= (0x00 << 6),	//SCK idles low, data changed on SCK's falling edge, read on rising edge.
+			Mode1			= (0x02 << 6),	//SCK idles low, data changed on SCK's rising edge, read on falling edge.
+			Mode2			= (0x01 << 6),	//SCK idles high, data changed on SCK's falling edge, read on rising edge.
+			Mode3			= (0x03 << 6),	//SCK idles high, data changed on SCK's rising edge, read on falling edge.
+			
+			Default			= (CharsAre8Bit | Mode0),
+		};
+		typedef int Mode;
+		
+		void			start(int bitRate = 2000000UL, Mode mode = Default, Role role = Master);
 		inline void		stop(void)	{start(0);}
 		
 		bool			bytesAvailable(void) const;
 		
-		Task			read(int length, byte* bytesReadBack, unsigned short writeChar = 0);
-		Task			read(int length, unsigned short* bytesReadBack, unsigned short writeChar = 0);
+		inline Task		read(int length, byte* bytesReadBack = 0, byte writeChar = 0)	{return(write(writeChar, length, bytesReadBack));}
+		inline Task		read(int length, unsigned short* bytesReadBack = 0, unsigned short writeChar = 0)		{return(write(writeChar, length, bytesReadBack));}
 		
-		inline Task		readAndWrite(char const* s, int length, byte* bytesReadBack) {return(write((byte const*)s, length, bytesReadBack));}
-		inline Task		readAndWrite(byte const* s, int length, byte* bytesReadBack) {return(write(s, length, bytesReadBack));}
+		inline Task		readAndWrite(char const* s, int length, byte* bytesReadBack)		{return(write((byte const*)s, length, bytesReadBack));}
+		inline Task		readAndWrite(byte const* s, int length, byte* bytesReadBack)		{return(write(s, length, bytesReadBack));}
 		inline Task		readAndWrite(unsigned short const* s, int length, byte* bytesReadBack) {return(write(s, length, bytesReadBack));}
 		
-		inline Task		write(char c, int length = 1)		{return(write((unsigned short)c, length));}
-		inline Task		write(byte b, int length = 1)		{return(write((unsigned short)b, length));}
-		inline Task		write(short h, int length = 1)		{return(write((unsigned short)h, length));}
-		Task			write(unsigned short h, int length = 1);
+		inline Task		write(char c, int length = 1, byte* bytesReadBack = 0)				{return(write((byte)c, length, bytesReadBack));}
+		Task			write(byte b, int length = 1, byte* bytesReadBack = 0);
+		inline Task		write(short h, int length = 1, unsigned short* bytesReadBack = 0)	{return(write((unsigned short)h, length, bytesReadBack));}
+		Task			write(unsigned short h, int length = 1, unsigned short* bytesReadBack = 0);
 		
-		inline Task		write(char const* s, int length, byte* bytesReadBack = 0)	{return(write((byte const*)s, length, bytesReadBack));}
+		inline Task		write(char const* s, int length = -1, byte* bytesReadBack = 0)	{return(write((byte const*)s, length, bytesReadBack));}
 		Task			write(byte const* s, int length, byte* bytesReadBack = 0);
 		Task			write(unsigned short const* s, int length, byte* bytesReadBack = 0);
 	};

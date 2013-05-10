@@ -858,7 +858,7 @@
 			SPI0Control0_SPIMode2				=	(0x01 << 6),	//polarity 1, phase 0
 			SPI0Control0_SPIMode3				=	(0x03 << 6),	//polarity 1, phase 1
 
-			SPI0Control0_ClockRateMinus1 		=	(0 << 8),
+			SPI0Control0_ClockRateMinus1 		=	(0 << 8),		//bits 8-15
 		};
 
 	REGISTER	SPI0Control1 =			REGISTER_ADDRESS(0x40040004);
@@ -886,40 +886,17 @@
 	REGISTER	SPI0ClockPrescaler =	REGISTER_ADDRESS(0x40040010);
 	
 	REGISTER	SPI0InterruptEnable =	REGISTER_ADDRESS(0x40040014);
-		enum SPI0InterruptEnable
+		enum SPI0Interrupt
 		{
-			SPI0InterruptEnable_ReceiveOverrun		=	0x01,
-			SPI0InterruptEnable_ReceiveTimeout		=	0x02,
-			SPI0InterruptEnable_ReceiveFIFOHalfFull	=	0x04,
-			SPI0InterruptEnable_TransmitFIFOHalfEmpty =	0x08,
+			SPI0Interrupt_ReceiveOverrun		=	0x01,
+			SPI0Interrupt_ReceiveTimeout		=	0x02,
+			SPI0Interrupt_ReceiveFIFOHalfFull	=	0x04,
+			SPI0Interrupt_TransmitFIFOHalfEmpty =	0x08,
 		};
-
+	//(enum values are identical to SPI0Interrupt)
 	REGISTER	SPI0RawInterrupt =		REGISTER_ADDRESS(0x40040018);
-		enum SPI0RawInterrupt
-		{
-			SPI0RawInterrupt_ReceiveOverrun			=	0x01,
-			SPI0RawInterrupt_ReceiveTimeout			=	0x02,
-			SPI0RawInterrupt_ReceiveFIFOHalfFull	=	0x04,
-			SPI0RawInterrupt_TransmitFIFOHalfEmpty	=	0x08,
-		};
-
 	REGISTER	SPI0MaskedInterrupt =	REGISTER_ADDRESS(0x4004001C);
-		enum SPI0MaskedInterrupt
-		{
-			SPI0MaskedInterrupt_ReceiveOverrun		=	0x01,
-			SPI0MaskedInterrupt_ReceiveTimeout		=	0x02,
-			SPI0MaskedInterrupt_ReceiveFIFOHalfFull	=	0x04,
-			SPI0MaskedInterrupt_TransmitFIFOHalfEmpty =	0x08,
-		};
-
 	REGISTER	SPI0InterruptClear =	REGISTER_ADDRESS(0x40040020);
-		enum SPI0InterruptClear
-		{
-			SPI0InterruptClear_ReceiveOverrun		=	0x01,
-			SPI0InterruptClear_ReceiveTimeout		=	0x02,
-			SPI0InterruptClear_ReceiveFIFOHalfFull	=	0x04,
-			SPI0InterruptClear_TransmitFIFOHalfEmpty =	0x08,
-		};
 	
 
 	//UART
