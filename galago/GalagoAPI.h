@@ -1,19 +1,21 @@
 #ifndef __GALAGO_H__
 #define __GALAGO_H__
 
-#include <stddef.h>
+//#include <stddef.h>
 
+typedef unsigned int	size_t;
+typedef signed int		ssize_t;
 typedef unsigned char	byte;
 
 namespace Galago {
 
 class Task;
-
 struct InternalTaskCallback;
 struct InternalTask
 {
+private:
 	friend class Task;
-	
+	friend class System;
 	unsigned short			_flags;
 	unsigned short			_rc;
 	InternalTaskCallback*	_c;
@@ -21,29 +23,42 @@ struct InternalTask
 	void					destroy(void);
 };
 
-class Task
+class Buffer;
+struct InternalBuffer
 {
-	friend class System;
-	public:		inline 					Task(void): _t(0)	{}
-	public:		inline 					Task(Task const& t): _t(t._t)	{refer(_t);}
-	public:		inline 					Task(InternalTask* t): _t(t)	{refer(_t);}
-	public:		inline 					~Task(void)				{release(_t); _t = 0;}
+private:
+	friend class Buffer;
 	
-	public:		Task&					operator =(Task const& t);
-	
-	public:		inline bool operator	==(Task const& t) const	{return(t._t == _t);}
-	public:		inline bool operator	!=(Task const& t) const	{return(t._t != _t);}
-	
-	public:		Task operator			+(Task const& r) const;
-	
-	
-	private:	inline static void		refer(InternalTask* t)	{if(t)	t->_rc++;}
-	private:	static void				release(InternalTask* t);
-	
-	private:	InternalTask*			_t;
+					InternalBuffer(size_t l): length(l), _rc(0) {}
+	size_t			length;
+	unsigned short	_rc;
+	byte			data[1];
 };
 
-struct CircularBuffer
+class Task
+{
+public:
+	friend class System;
+	
+	inline 					Task(void): _t(0)	{}
+	inline 					Task(Task const& t): _t(t._t)	{refer(_t);}
+	inline 					~Task(void)				{release(_t); _t = 0;}
+	
+	Task&					operator =(Task const& t);
+	
+	inline bool operator	==(Task const& t) const	{return(t._t == _t);}
+	inline bool operator	!=(Task const& t) const	{return(t._t != _t);}
+	
+	Task operator			+(Task const& r) const;
+	
+private:
+	inline 					Task(InternalTask* t): _t(t)	{refer(_t);}
+	inline static void		refer(InternalTask* t)	{if(t)	t->_rc++;}
+	static void				release(InternalTask* t);
+	InternalTask*			_t;
+};
+
+class CircularBuffer
 {
 public:
 			CircularBuffer(int size);
@@ -64,26 +79,28 @@ private:
 	byte*	_tail;
 };
 
+
 class Buffer
 {
 public:
-	inline					Buffer(void) {};
-	inline					Buffer(Buffer const& b);
-	inline Buffer&			operator =(Buffer const& b);
+	inline					Buffer(void): _b(0) {}
+	inline					Buffer(Buffer const& b): _b(b._b)	{refer(_b);}
+	Buffer&					operator =(Buffer const& b);
+	inline 					~Buffer(void)				{release(_b); _b = 0;}
 	
-	inline size_t			length() const;
-	inline byte*			bytes();
-	inline byte const*		bytes() const;
+	inline size_t			length() const	{return(_b? _b->length : 0);}
+	inline byte*			bytes()			{return(_b? _b->data : 0);}
+	inline byte const*		bytes() const	{return(_b? _b->data : 0);}
 	
-	static inline Buffer	New(char const* cStr);
-	static inline Buffer	New(size_t length);
-	static inline Buffer	New(void* b, size_t length);
+	static Buffer			New(char const* cStr);
+	static Buffer			New(size_t length);
+	static Buffer			New(void* b, size_t length);
 	
 	Buffer					operator +(Buffer const& b) const;
 	Buffer&					operator +=(Buffer const& b);
 	
-	bool					operator ==(Buffer const& b) const;
-	bool					operator ==(char const* cStr) const;
+	inline bool				operator ==(Buffer const& b) const		{return((b._b == _b) || (b._b && Equals(b._b->data, b._b->length)));}
+	inline bool				operator ==(char const* cStr) const;
 	
 	unsigned int			ParseUint(int base = 10);
 	signed int				ParseInt(int base = 10);
@@ -92,11 +109,17 @@ public:
 	bool					StartsWith(char const* cStr) const;
 	bool					Equals(byte const* str, size_t length) const;
 	
-	byte					operator[](size_t offset) const;
+	inline byte				operator[](size_t offset) const		{return((_b && (offset < _b->length))? _b->data[offset] : 0);}
 	
 	Buffer					Slice(size_t start, size_t end);
-	size_t					IndexOf(byte b, size_t offset = 0);
-	size_t					IndexOf(Buffer b, size_t offset = 0);
+	ssize_t					IndexOf(byte b, size_t offset = 0);
+	ssize_t					IndexOf(Buffer b, size_t offset = 0);
+	
+private:
+	inline					Buffer(InternalBuffer* b): _b(b) {refer(b);}
+	inline static void		refer(InternalBuffer* b)	{if(b)	b->_rc++;}
+	static void				release(InternalBuffer* b);
+	InternalBuffer*			_b;
 };
 
 class IO
@@ -206,21 +229,21 @@ public:
 		
 		bool			bytesAvailable(void) const;
 		
-		inline Task		read(int length, byte* bytesReadBack = 0, byte writeChar = 0)	{return(write(writeChar, length, bytesReadBack));}
-		inline Task		read(int length, unsigned short* bytesReadBack = 0, unsigned short writeChar = 0)		{return(write(writeChar, length, bytesReadBack));}
+		inline Task		read(int length, Buffer bytesReadBack = Buffer(), byte writeChar = 0)	{return(write(writeChar, length, bytesReadBack));}
+		inline Task		read(int length, Buffer bytesReadBack = Buffer(), unsigned short writeChar = 0)	{return(write(writeChar, length, bytesReadBack));}
 		
-		inline Task		readAndWrite(char const* s, int length, byte* bytesReadBack)		{return(write((byte const*)s, length, bytesReadBack));}
-		inline Task		readAndWrite(byte const* s, int length, byte* bytesReadBack)		{return(write(s, length, bytesReadBack));}
-		inline Task		readAndWrite(unsigned short const* s, int length, byte* bytesReadBack) {return(write(s, length, bytesReadBack));}
+		inline Task		readAndWrite(char const* s, int length, Buffer bytesReadBack = Buffer())		{return(write((byte const*)s, length, bytesReadBack));}
+		inline Task		readAndWrite(byte const* s, int length, Buffer bytesReadBack = Buffer())		{return(write(s, length, bytesReadBack));}
+		inline Task		readAndWrite(unsigned short const* s, int length, Buffer bytesReadBack = Buffer()) {return(write(s, length, bytesReadBack));}
 		
-		inline Task		write(char c, int length = 1, byte* bytesReadBack = 0)				{return(write((byte)c, length, bytesReadBack));}
-		Task			write(byte b, int length = 1, byte* bytesReadBack = 0);
-		inline Task		write(short h, int length = 1, unsigned short* bytesReadBack = 0)	{return(write((unsigned short)h, length, bytesReadBack));}
-		Task			write(unsigned short h, int length = 1, unsigned short* bytesReadBack = 0);
+		inline Task		write(char c, int length = 1, Buffer bytesReadBack = Buffer())				{return(write((byte)c, length, bytesReadBack));}
+		Task			write(byte b, int length = 1, Buffer bytesReadBack = Buffer());
+		inline Task		write(short h, int length = 1, Buffer bytesReadBack = Buffer())				{return(write((unsigned short)h, length, bytesReadBack));}
+		Task			write(unsigned short h, int length = 1, Buffer bytesReadBack = Buffer());
 		
-		inline Task		write(char const* s, int length = -1, byte* bytesReadBack = 0)	{return(write((byte const*)s, length, bytesReadBack));}
-		Task			write(byte const* s, int length, byte* bytesReadBack = 0);
-		Task			write(unsigned short const* s, int length, byte* bytesReadBack = 0);
+		inline Task		write(char const* s, int length = -1, Buffer bytesReadBack = Buffer())		{return(write((byte const*)s, length, bytesReadBack));}
+		Task			write(byte const* s, int length, Buffer bytesReadBack = Buffer());
+		Task			write(unsigned short const* s, int length, Buffer bytesReadBack = Buffer());
 	};
 
 	class I2C

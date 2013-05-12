@@ -7,12 +7,12 @@
 
 extern "C" int main(void);
 
-extern "C" void ignoreInterrupt(void);
+extern "C" void ignoreInterrupt(void) INTERRUPT;
 
 extern "C" void _start(void) __attribute__ ((weak, alias("_gaunt_start"), used));
 extern "C" void _gaunt_start(void);
-extern "C" void _HardFault(void);
-extern "C" void _SVCall(void);
+extern "C" void _HardFault(void) INTERRUPT;
+extern "C" void _SVCall(void) INTERRUPT;
 extern "C" void _InternalIRQ_SysTick(void) WEAK_IGNORE;
 
 
@@ -173,42 +173,45 @@ extern "C" void STARTUP __attribute__((naked)) _gaunt_start(void)
 {
 	__asm__ volatile (
 	"cpsid		i				\n"		//disable interrupts
-	"mov		r0,		sp		\n"
-	"movs		r1,		#2		\n"
-	"msr		CONTROL, r1		\n"		//switch to Process SP
-	"mov		sp,		r0		\n"		//set PSP = MSP
-	"movs		r2,		#0		\n"
-	"msr		CONTROL, r2		\n"		//switch back to Main SP
-	"isb.w						\n"		//invoke an instuction sync barrier to ensure subsequent stack usage is correct
+	"mov		r0,		#0		\n"
+	"ldr		r1,		[r0, #0]\n"		//$sp = *(void**)0	//load SP from address 0. Yes, the hardware does this, but not
+	"mov		sp,		r1		\n"							//  if you manually vector to _start during e.g. debugging or soft-reset
+	"movs		r2,		#2		\n"
+	"msr		CONTROL, r2		\n"		//switch to Process SP
+	"mov		sp,		r1		\n"		//set PSP = MSP
+	"msr		CONTROL, r0		\n"		//switch back to Main SP
+	"ldr		r0,		=0x40048000\n"	//there are some odd scenarios (noticed during debugging) where the ROM bootloader/seed doesn't
+	"str		r2,		[r0, #0]\n"		//  set this correctly.
+	"isb.w						\n"		//invoke an instruction sync barrier to ensure subsequent stack usage is correct
+	"dsb.w						\n"		//a data sync barrier ensures stack-based execution and IO relative to the stack is ok
 	
 	//annoyingly, I couldn't get this to generate correct asm, hence the inline asm version below
 	// void (**p)(void) = __init_end;
 	// while(p-- != __init_start)
 	//   (*p)();
 	
-	"ldr		r0,		=__init_end		\n"
-	"ldr		r1,		=__init_start	\n"
+	"ldr		r4,		=__init_end		\n"
+	"ldr		r5,		=__init_start	\n"
 	"._start_next_ctor:					\n"
-	"cmp		r0, r1					\n"
+	"cmp		r4, r5					\n"
 	"beq.n		._start_ctors_done		\n"
-	"subs		r0,		4				\n"
-	"ldr		r2, [r0, #0]			\n"
-	"blx		r2						\n"
+	"subs		r4,		4				\n"
+	"ldr		r0, [r4, #0]			\n"
+	"blx		r0						\n"		//r4 and r5 are chosen above because ATPCS guarantees they won't be trampled here
 	"b.n		._start_next_ctor		\n"
 	"._start_ctors_done:				\n"
-	::: "r0", "r1", "r2");
+	::: "r0", "r1", "r2", "r4", "r5");
 	
 	main();
 	_HardFault();
 }
 
-extern "C" void STARTUP _HardFault(void)
+extern "C" void STARTUP INTERRUPT _HardFault(void)
 {
-	while(true)
-		__asm__ volatile ("bkpt 2"::);
+	__asm__ volatile ("bkpt 2"::);	//you may single-step (gdb: `stepi`) twice to go to the fault point
 }
 
-extern "C" void STARTUP _SVCall(void)
+extern "C" void STARTUP INTERRUPT _SVCall(void)
 {
 }
 
@@ -219,7 +222,7 @@ extern "C" void STARTUP _Sleep(void)
 	//@@exit PMU state
 }
 
-extern "C" void STARTUP ignoreInterrupt(void)
+extern "C" void STARTUP INTERRUPT ignoreInterrupt(void)
 {
 }
 

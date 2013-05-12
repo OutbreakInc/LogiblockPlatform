@@ -860,7 +860,6 @@
 
 			SPI0Control0_ClockRateMinus1 		=	(0 << 8),		//bits 8-15
 		};
-
 	REGISTER	SPI0Control1 =			REGISTER_ADDRESS(0x40040004);
 		enum SPI0Control1
 		{
@@ -869,9 +868,7 @@
 			SPI0Control1_SlaveMode		=	0x04,
 			SPI0Control1_OutputDisable	=	0x08,
 		};
-
 	REGISTER	SPI0Data =				REGISTER_ADDRESS(0x40040008);
-	
 	REGISTER	SPI0Status =			REGISTER_ADDRESS(0x4004000C);
 		enum SPI0Status
 		{
@@ -882,9 +879,7 @@
 			
 			SPI0Status_Busy 				=	0x10,
 		};
-
 	REGISTER	SPI0ClockPrescaler =	REGISTER_ADDRESS(0x40040010);
-	
 	REGISTER	SPI0InterruptEnable =	REGISTER_ADDRESS(0x40040014);
 		enum SPI0Interrupt
 		{
@@ -897,7 +892,11 @@
 	REGISTER	SPI0RawInterrupt =		REGISTER_ADDRESS(0x40040018);
 	REGISTER	SPI0MaskedInterrupt =	REGISTER_ADDRESS(0x4004001C);
 	REGISTER	SPI0InterruptClear =	REGISTER_ADDRESS(0x40040020);
-	
+		enum SPI0InterruptClear
+		{
+			SPI0InterruptClear_ReceiveOverrun		=	0x01,
+			SPI0InterruptClear_ReceiveTimeout		=	0x02,
+		};
 
 	//UART
 	REGISTER	UARTData =					REGISTER_ADDRESS(0x40008000);	//accessible only when UARTLineControl_DivisorLatch = 0
@@ -913,8 +912,24 @@
 		};
 	REGISTER	UARTDivisorLow =			REGISTER_ADDRESS(0x40008000);	//when UARTLineControl_DivisorLatch = 1
 	REGISTER	UARTDivisorHigh =			REGISTER_ADDRESS(0x40008004);	// "
-	REGISTER	UARTInterruptsActive =		REGISTER_ADDRESS(0x40008008);	//read-only
-		//(enum values are identical to UARTInterrupts)
+	REGISTER	UARTInterruptID =			REGISTER_ADDRESS(0x40008008);	//read-only
+		enum UARTInterruptID
+		{
+			UARTInterruptID_InterruptPending	=	(0x01),
+			
+			UARTInterruptID_ReasonMask			=	(0x7 << 1),
+			
+			UARTInterruptID_ReceiveException	=	(3 << 1),	//signaled on receive overrun, parity, framing or break errors
+			UARTInterruptID_DataAvailable		=	(2 << 1),
+			UARTInterruptID_ReceiveTimeout		=	(6 << 1),	//not as bad as it sounds: not enough chars received to trip interrupt
+			UARTInterruptID_TxBufferEmpty		=	(1 << 1),
+			UARTInterruptID_Modem				=	(0 << 1),
+			
+			UARTInterruptID_FIFOEnabled			=	(1 << 6),
+			
+			UARTInterruptID_AutoBaudComplete	=	(0x100),
+			UARTInterruptID_AutoBaudTimeout		=	(0x200),
+		};
 	REGISTER	UARTFIFOControl =			REGISTER_ADDRESS(0x40008008);	//write-only
 		enum UARTFIFOControl
 		{
@@ -1223,18 +1238,82 @@
 			Interrupt1_GPIO0 =		(1 << 24),
 			Interrupt1_SPI1 =		(1 << 25),
 		};
-				
 	REGISTER	InterruptEnableClear0 =		REGISTER_ADDRESS(0xE000E180);
 	REGISTER	InterruptEnableClear1 =		REGISTER_ADDRESS(0xE000E184);
 	REGISTER	InterruptSetPending0 =		REGISTER_ADDRESS(0xE000E200);
 	REGISTER	InterruptSetPending1 =		REGISTER_ADDRESS(0xE000E204);
 	REGISTER	InterruptClearPending0 =	REGISTER_ADDRESS(0xE000E280);
 	REGISTER	InterruptClearPending1 =	REGISTER_ADDRESS(0xE000E284);
+	REGISTER	InterruptActive0 =			REGISTER_ADDRESS(0xE000E300);
+	REGISTER	InterruptActive1 =			REGISTER_ADDRESS(0xE000E304);
+	REGISTER	InterruptTrigger =			REGISTER_ADDRESS(0xE000EF00);
+		enum InterruptTrigger
+		{
+			InterruptTrigger_PIO0_0		=	0,
+			InterruptTrigger_PIO0_1,
+			InterruptTrigger_PIO0_2,
+			InterruptTrigger_PIO0_3,
+			InterruptTrigger_PIO0_4,
+			InterruptTrigger_PIO0_5,
+			InterruptTrigger_PIO0_6,
+			InterruptTrigger_PIO0_7,
+			InterruptTrigger_PIO0_8,
+			InterruptTrigger_PIO0_9,
+			InterruptTrigger_PIO0_10,
+			InterruptTrigger_PIO0_11,
+			InterruptTrigger_PIO1_0,
+			InterruptTrigger_PIO1_1,
+			InterruptTrigger_PIO1_2,
+			InterruptTrigger_PIO1_3,
+			InterruptTrigger_PIO1_4,
+			InterruptTrigger_PIO1_5,
+			InterruptTrigger_PIO1_6,
+			InterruptTrigger_PIO1_7,
+			InterruptTrigger_PIO1_8,
+			InterruptTrigger_PIO1_9,
+			InterruptTrigger_PIO1_10,
+			InterruptTrigger_PIO1_11,
+			InterruptTrigger_PIO2_0,
+			InterruptTrigger_PIO2_1,
+			InterruptTrigger_PIO2_2,
+			InterruptTrigger_PIO2_3,
+			InterruptTrigger_PIO2_4,
+			InterruptTrigger_PIO2_5,
+			InterruptTrigger_PIO2_6,
+			InterruptTrigger_PIO2_7,
+			InterruptTrigger_PIO2_8,
+			InterruptTrigger_PIO2_9,
+			InterruptTrigger_PIO2_10,
+			InterruptTrigger_PIO2_11,
+			InterruptTrigger_PIO3_0,
+			InterruptTrigger_PIO3_1,
+			InterruptTrigger_PIO3_2,
+			InterruptTrigger_PIO3_3,
+			InterruptTrigger_I2C,
+			InterruptTrigger_Timer0,
+			InterruptTrigger_Timer1,
+			InterruptTrigger_Timer2,
+			InterruptTrigger_Timer3,
+			InterruptTrigger_SPI0,
+			InterruptTrigger_UART,
+			InterruptTrigger_USB,
+			InterruptTrigger_USBFast,
+			InterruptTrigger_ADC,
+			InterruptTrigger_Watchdog,
+			InterruptTrigger_BrownOut,
+			//reserved value
+			InterruptTrigger_GPIO3		=	(InterruptTrigger_BrownOut + 2),
+			InterruptTrigger_GPIO2,
+			InterruptTrigger_GPIO1,
+			InterruptTrigger_GPIO0,
+			InterruptTrigger_SPI1,
+		};
 	
 	#ifdef __cplusplus
 	} //ns
 	#endif //__cplusplus
-
+	
+	#define INTERRUPT							__attribute__ ((interrupt ("IRQ")))		//interrupt type is ignored on ARMv7-M
 	#define	InterruptsDisable()					__asm volatile ("CPSID i" ::)
 	#define	InterruptsEnable()					__asm volatile ("CPSIE i" ::)
 	

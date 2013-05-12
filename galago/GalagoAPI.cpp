@@ -34,6 +34,14 @@ int		stringZeroLength(byte const* s)
 	return(length);
 }
 
+extern "C"
+void	memcpy(void* dest, void const* source, size_t length)
+{
+	byte* d = (byte*)dest;
+	byte const* s = (byte const*)source;
+	while(length--)
+		*d++ = *s++;
+}
 
 ////////////////////////////////////////////////////////////////
 //
@@ -202,6 +210,246 @@ int		CircularBuffer::bytesFree(void) const
 
 
 ////////////////////////////////////////////////////////////////
+// Buffer
+
+Buffer&					Buffer::operator =(Buffer const& b)
+{
+	refer(b._b);
+	release(_b);
+	_b = b._b;
+	return(*this);	
+}
+
+Buffer					Buffer::New(char const* cStr)
+{
+	if(cStr == 0)	return(Buffer());
+	size_t length = stringZeroLength((byte const*)cStr);
+	InternalBuffer* ib = new(length) InternalBuffer(length);
+	memcpy(ib->data, cStr, length + 1);
+	return(Buffer(ib));
+}
+
+Buffer					Buffer::New(size_t length)
+{
+	if(length == 0)	return(Buffer());
+	InternalBuffer* ib = new(length) InternalBuffer(length);
+	return(Buffer(ib));
+}
+
+Buffer					Buffer::New(void* d, size_t length)
+{
+	if((d == 0) || (length == 0))	return(Buffer());
+	InternalBuffer* ib = new(length) InternalBuffer(length);
+	memcpy(ib->data, d, length);
+	return(Buffer(ib));
+}
+
+Buffer					Buffer::operator +(Buffer const& b) const
+{
+	if(_b == 0)		return(b);
+	if(b._b == 0)	return(*this);
+	
+	size_t totalLength = _b->length + b._b->length;
+	InternalBuffer* newBuffer = new(totalLength) InternalBuffer(totalLength);
+	memcpy(newBuffer->data, _b->data, _b->length);
+	memcpy(newBuffer->data + _b->length, b._b->data, b._b->length);
+	
+	return(Buffer(newBuffer));
+}
+
+Buffer&					Buffer::operator +=(Buffer const& b)
+{
+	return(operator =(operator +(b)));
+}
+
+bool					Buffer::operator ==(char const* cStr) const
+{
+	if((_b == 0) || (cStr == 0))
+		return((_b == 0) && (cStr == 0));
+	
+	size_t length = stringZeroLength((byte const*)cStr);
+	
+	return(Equals((byte const*)cStr, length));
+}
+
+bool					Buffer::StartsWith(byte const* str, size_t length) const
+{
+	if((_b == 0) || (length == 0) || (length > _b->length))
+		return(length == 0);
+	
+	//return(memcmp(_b->data, str, length) == 0);
+	for(size_t i = 0; i < length; i++)
+		if(*str++ != _b->data[i])
+			return(false);
+	
+	return(true);
+}
+
+bool					Buffer::StartsWith(char const* cStr) const
+{
+	size_t length = cStr? stringZeroLength((byte const*)cStr) : 0;
+	
+	return(StartsWith((byte const*)cStr, length));
+}
+
+bool					Buffer::Equals(byte const* str, size_t length) const
+{
+	if(_b == 0)
+		return(length == 0);
+	
+	return((length == _b->length) && StartsWith(str, length));
+}
+
+/*
+static bool		isAsciiBinaryChar(char ascii)
+{
+	return((ascii & ~1) == '0');
+}
+
+static bool		isAsciiOctalChar(char ascii)
+{
+	return(ascii >= '0' && ascii <= '7');
+}
+
+static bool		isAsciiDecimalChar(char ascii)
+{
+	return(ascii >= '0' && ascii <= '9');
+}
+
+static bool		isAsciiHexChar(char ascii)
+{
+	return((ascii >= '0' && ascii <= '9') || (ascii >= 'A' && ascii <= 'F') || (ascii >= 'a' && ascii <= 'f'));
+}
+static u8		asciiHexChar(char ascii)
+{
+	return((ascii >= '0' && ascii <= '9')? (ascii - '0') : ((ascii >= 'a' && ascii <= 'f')? (ascii - 'a' + 10) : ((ascii >= 'A' && ascii <= 'F')? (ascii - 'A' + 10) : 0xFF)));
+}
+
+unsigned int			Buffer::ParseUint(int base)
+{
+	if(_p == 0)	return(0);
+	
+	GenericBuffer* buffer = (GenericBuffer*)_p;
+	size_t length = buffer->length;
+	char const* ascii = (char const*)buffer->data;
+	unsigned int value = 0;
+	
+	switch(base)
+	{
+	case 2:	//big-endian binary
+		while(isAsciiBinaryChar(*ascii) && (length-- > 0))
+		{
+			value <<= 1;
+			value |= (*ascii++) - '0';
+		}
+		break;
+		
+	case 8:
+		while(isAsciiOctalChar(*ascii) && (length-- > 0))
+		{
+			value <<= 3;
+			value += (*ascii++) - '0';
+		}
+		break;
+		
+	case 10:
+		while(isAsciiDecimalChar(*ascii) && (length-- > 0))
+		{
+			value *= 10;
+			value += (*ascii++) - '0';
+		}
+		break;
+		
+	case 16:	//big-endian hexadecimal
+		while(isAsciiHexChar(*ascii) && (length-- > 0))
+			value = (value << 4) | asciiHexChar(*ascii++);
+		break;
+		
+	case -16:	//little-endian hexadecimal
+		{
+			bool counter = false;
+			while(isAsciiHexChar(*ascii) && (length-- > 0))
+			{
+				value = (value >> 4) | (asciiHexChar(*ascii++) << 28);
+				if(counter)	value = ((value >> 4) & 0x0F000000) | ((value << 4) & 0xF0000000) | (value & 0xFFFFFF);
+				counter = !counter;
+			}
+		}
+		break;
+	
+	default:
+		//@@raise exception
+		break;
+	}
+	
+	return(value);
+}
+
+signed int				Buffer::ParseInt(int base)
+{
+	if(_p == 0)	return(0);
+	
+	GenericBuffer* buffer = (GenericBuffer*)_p;
+	size_t length = buffer->length;
+	char const* ascii = (char const*)buffer->data;
+	int value = 0;
+	
+	switch(base)
+	{
+	case 10:
+		while(isAsciiDecimalChar(*ascii) && (length-- > 0))
+		{
+			value *= 10;
+			value += (*ascii++) - '0';
+		}
+		break;
+	
+	default:
+		//@@raise exception
+		break;
+	}
+	
+	return(value);
+}
+*/
+
+ssize_t					Buffer::IndexOf(byte b, size_t offset)
+{
+	if(_b == 0)
+		return(-1);
+	
+	if(offset > _b->length)
+		return(-1);
+	
+	for(int i = offset; i < _b->length; i++)
+		if(_b->data[i] == b)
+			return(i);
+	return(-1);
+}
+
+ssize_t					Buffer::IndexOf(Buffer b, size_t offset)
+{
+	if((_b == 0) || (b._b == 0))
+		return(-1);
+	
+	if(offset > _b->length)
+		return(-1);
+	
+	//void const* point = memmem(haystack->data + offset, haystack->length - offset, needle->data, needle->length);
+	
+	//return((point != 0)? ((unsigned char*)point - (unsigned char*)haystack->data) : -1);
+	
+	//@@todo
+	return(-1);
+}
+
+void					Buffer::release(InternalBuffer* b) //static
+{
+	if(b && (--b->_rc == 0))
+		delete b;
+}
+
+////////////////////////////////////////////////////////////////
 // IOCore
 
 struct IOCore
@@ -260,21 +508,21 @@ struct IOCore
 		unsigned short	writeIdx;
 		unsigned short	readIdx;
 		byte			is16Bit;
-		void*			bytesReadBack;
+		Buffer			bytesReadBack;
 		union
 		{
 			byte			data[1];
 			unsigned short	data16[1];
 		};
 		
-						SPITask(int l, void* readBack, bool is16 = false):
+						SPITask(int l, Buffer readBack, bool is16 = false):
 							len(l),
 							writeIdx(0),
 							readIdx(0),
 							is16Bit(is16),
 							bytesReadBack(readBack)
 		{}
-						SPITask(byte const* bytes, int l, void* readBack):
+						SPITask(byte const* bytes, int l, Buffer readBack):
 							len(l),
 							writeIdx(0),
 							readIdx(0),
@@ -284,7 +532,7 @@ struct IOCore
 			for(int i = 0; i < l; i++)
 				data[i] = *bytes++;
 		}
-						SPITask(unsigned short const* halves, int l, void* readBack):
+						SPITask(unsigned short const* halves, int l, Buffer readBack):
 							len(l),
 							writeIdx(0),
 							readIdx(0),
@@ -296,25 +544,25 @@ struct IOCore
 		}
 	};
 	
-	TimerTask*		timerCurrentTask;
+	TimerTask* volatile		timerCurrentTask;
 	
-	ADCTask*		adcCurrentTask;
+	ADCTask* volatile		adcCurrentTask;
 	
-	CircularBuffer*	uartReceiveBuffer;
-	Task			uartRecvTask;
-	WriteTask*		uartCurrentWriteTask;
+	CircularBuffer* volatile	uartReceiveBuffer;
+	Task					uartRecvTask;
+	WriteTask* volatile		uartCurrentWriteTask;
 	
-	WriteTask*		i2cCurrentTask;
+	WriteTask* volatile		i2cCurrentTask;
 	
-	SPITask*		spiCurrentTask;
+	SPITask* volatile		spiCurrentTask;
 	
-					IOCore(void):
-						timerCurrentTask(0),
-						adcCurrentTask(0),
-						uartReceiveBuffer(0),
-						uartCurrentWriteTask(0),
-						i2cCurrentTask(0),
-						spiCurrentTask(0)
+							IOCore(void):
+								timerCurrentTask(0),
+								adcCurrentTask(0),
+								uartReceiveBuffer(0),
+								uartCurrentWriteTask(0),
+								i2cCurrentTask(0),
+								spiCurrentTask(0)
 	{
 		//uartReceiveBuffer = new CircularBuffer(128);	//@@defer until UART is started, free when stopped
 	}
@@ -643,8 +891,12 @@ bool			System::completeTask(Task t, bool success)
 	//@@defer until not in the NVIC stack any longer, then call user callbacks
 	InternalTaskCallback* callbacks = t._t->_c;
 	int numCallbacks = t._t->_flags & 0x3FFF;
+	t._t->_flags &= ~0x3FFF;
 	for(int i = 0; i < numCallbacks; i++)
 		callbacks[i].f(callbacks[i].c, t, success);
+	
+	delete[] callbacks;
+	t._t->_c = 0;
 	
 	return(true);
 }
@@ -739,8 +991,7 @@ Task			System::delay(int milliseconds)
 }
 
 //fundamental frequency of 1kHz
-extern "C"
-void			_InternalIRQ_SysTick(void)
+INTERRUPT void		_InternalIRQ_SysTick(void)
 {
 	System_wakeFromSpan();
 	
@@ -897,13 +1148,12 @@ static unsigned char const IO_ioConfigForPin[] =
 	led = 1;	//!LED deasserted (unlit) initially
 	
 	//enable interrupts we need for IO: I2C, the Timers, SPI0, UART and the ADC.
-	*InterruptEnableSet1 = Interrupt1_I2C
-		| Interrupt1_Timer0 | Interrupt1_Timer1 | Interrupt1_Timer2 | Interrupt1_Timer3
-		| Interrupt1_SPI0 | Interrupt1_UART | Interrupt1_ADC;
+	//@@temp *InterruptEnableSet1 = Interrupt1_I2C
+	//@@temp 	| Interrupt1_Timer0 | Interrupt1_Timer1 | Interrupt1_Timer2 | Interrupt1_Timer3
+	//@@temp 	| Interrupt1_SPI0 | Interrupt1_UART | Interrupt1_ADC;
 }
 
-extern "C"
-void		IRQ_ADC(void)
+INTERRUPT void		IRQ_ADC(void)
 {
 	//save the result of the last conversion
 	*IOCore.adcCurrentTask->output = *ADCData;
@@ -1052,18 +1302,43 @@ void			IO::SPI::start(int bitRate, Mode mode, Role role)
 		*ClockControl |= ClockControl_SPI0;	//enable SPI0 clock
 		*SPI0ClockPrescaler = 2;	//minimum 2
 
-		*SPI0ClockDivider = (system.getCoreFrequency() >> 1) / bitRate;
+		//*SPI0ClockDivider = (system.getCoreFrequency() >> 1) / bitRate;
+		*SPI0ClockDivider = 1;
 		
 		*PeripheralnReset |= PeripheralnReset_SPI0;	//deassert reset
 		
 		*SPI0Control0 = mode;	//SPI0Control0_8BitTransfer | SPI0Control0_FrameFormat_SPI | SPI0Control0_SPIMode0;
 		*SPI0Control1 = SPI0Control1_Enable;
+		
+		io.sck.setMode(IO::Pin::SPI);
+		io.miso.setMode(IO::Pin::SPI);
+		io.mosi.setMode(IO::Pin::SPI);
+		
+		*InterruptEnableSet1 = Interrupt1_SPI0;
 	}
 	else
 	{
 		*ClockControl &= ~ClockControl_SPI0;	//disable SPI0 clock
 		
+		*InterruptEnableClear1 = Interrupt1_SPI0;
 		*SPI0InterruptClear = 0x0F;	//disable interrupts
+		
+		//empty the queue
+		InterruptsDisable();
+		IOCore::TaskQueueItem* task = IOCore.spiCurrentTask;
+		while(task != 0)
+		{
+			IOCore::TaskQueueItem* t = task;
+			task = task->next;
+			system.completeTask(t->task, false);	//cancel the task
+			delete t;
+		}
+		IOCore.spiCurrentTask = 0;
+		InterruptsEnable();
+		
+		io.sck.setMode(IO::Pin::Default);
+		io.miso.setMode(IO::Pin::Default);
+		io.mosi.setMode(IO::Pin::Default);
 	}
 }
 
@@ -1071,71 +1346,64 @@ void			IO::SPI::start(int bitRate, Mode mode, Role role)
 void			IO_SPI_queueTask(IOCore::SPITask* spiTask)
 {
 	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.spiCurrentTask, spiTask);
-	*SPI0InterruptEnable = SPI0Interrupt_TransmitFIFOHalfEmpty | SPI0Status_ReceiveFIFONotEmpty;
+	*SPI0InterruptEnable |= SPI0Interrupt_TransmitFIFOHalfEmpty;
 }
 
-Task			IO::SPI::write(byte b, int length, byte* bytesReadBack)
+Task			IO::SPI::write(byte b, int length, Buffer bytesReadBack)
 {
+	Task task = system.createTask();
 	IOCore::SPITask* newTask = new(length) IOCore::SPITask(length, bytesReadBack);
-	
+	newTask->task = task;
+
 	for(int i = 0; i < length; i++)
 		newTask->data[i] = b;
 	
 	IO_SPI_queueTask(newTask);
-	return(newTask->task);
+	return(task);
 }
 
-Task			IO::SPI::write(unsigned short h, int length, unsigned short* bytesReadBack)
+Task			IO::SPI::write(unsigned short h, int length, Buffer bytesReadBack)
 {
+	Task task = system.createTask();
 	IOCore::SPITask* newTask = new(length * 2) IOCore::SPITask(length, bytesReadBack, true);
+	newTask->task = task;
 	
 	for(int i = 0; i < length; i++)
 		newTask->data16[i] = h;
 	
 	IO_SPI_queueTask(newTask);
-	return(newTask->task);
+	return(task);
 }
 
-Task			IO::SPI::write(byte const* s, int length, byte* bytesReadBack)
+Task			IO::SPI::write(byte const* s, int length, Buffer bytesReadBack)
 {
 	if(length < 0)
 		length = stringZeroLength(s);
 	
+	Task task = system.createTask();
 	IOCore::SPITask* newTask = new(length) IOCore::SPITask(s, length, bytesReadBack);
+	newTask->task = task;
 	
 	IO_SPI_queueTask(newTask);
-	return(newTask->task);
+	return(task);
 }
-Task			IO::SPI::write(unsigned short const* s, int length, byte* bytesReadBack)
+Task			IO::SPI::write(unsigned short const* s, int length, Buffer bytesReadBack)
 {
+	Task task = system.createTask();
 	IOCore::SPITask* newTask = new(length * 2) IOCore::SPITask(s, length, bytesReadBack);
+	newTask->task = task;
 	
 	IO_SPI_queueTask(newTask);
-	return(newTask->task);
+	return(task);
 }
 
-extern "C"
-void IRQ_SPI0(void)
+INTERRUPT void		IRQ_SPI0(void)
 {
-	//if there's a task
-		//while bytes remain to be read in the task and the FIFO has bytes
-			//read from FIFO
-		//if bytes remain to be written in the task and we can fit bytes in the FIFO
-			//write to FIFO
-		
-		//if task is done (all bytes are read)
-			//remove it
-			//complete it
-		
-		//if no tasks remain
-			//deactivate interrupt
-	//else
-		//deactivate interrupt
-	
 	IOCore::SPITask* currentTask;
+	
 	while((currentTask = IOCore.spiCurrentTask) != 0)
 	{
-		while(!(*SPI0Status & SPI0Status_ReceiveFIFOFull) && (currentTask->writeIdx < currentTask->len))
+		while((currentTask->readIdx < currentTask->writeIdx) && (*SPI0Status & SPI0Status_ReceiveFIFONotEmpty))
 		{
 			if(currentTask->is16Bit)
 				currentTask->data16[currentTask->readIdx++] = *SPI0Data;
@@ -1143,7 +1411,7 @@ void IRQ_SPI0(void)
 				currentTask->data[currentTask->readIdx++] = (byte)*SPI0Data;
 		}
 		
-		while(!(*SPI0Status & SPI0Status_TransmitFIFONotFull) && (currentTask->writeIdx < currentTask->len))
+		while((currentTask->writeIdx < currentTask->len) && (*SPI0Status & SPI0Status_TransmitFIFONotFull))
 		{
 			if(currentTask->is16Bit)
 				*SPI0Data = currentTask->data16[currentTask->writeIdx++];
@@ -1153,11 +1421,8 @@ void IRQ_SPI0(void)
 		
 		if(currentTask->readIdx == currentTask->len)
 		{
-			//for(int i = 0; i < currentTask->len; i++)
-			if(currentTask->bytesReadBack != 0)
-				//memcpy(currentTask->bytesReadBack, currentTask->data, currentTask->len);
-				for(int i = 0; i < (currentTask->is16Bit)? (currentTask->len * 2) : currentTask->len; i++)
-					*(byte*)currentTask->bytesReadBack = currentTask->data[i];
+			if(!(currentTask->bytesReadBack == Buffer()))
+				memcpy(currentTask->bytesReadBack.bytes(), currentTask->data, (currentTask->is16Bit)? (currentTask->len * 2) : currentTask->len);
 			
 			IOCore.spiCurrentTask = (IOCore::SPITask*)currentTask->next;
 			system.completeTask(currentTask->task);
@@ -1169,7 +1434,7 @@ void IRQ_SPI0(void)
 	}
 	
 	//stop being notified on FIFO ready
-	*SPI0InterruptClear = SPI0Interrupt_TransmitFIFOHalfEmpty | SPI0Status_ReceiveFIFONotEmpty;
+	*SPI0InterruptEnable &= ~SPI0Interrupt_TransmitFIFOHalfEmpty;
 }
 
 ////////////////////////////////////////////////////////////////
@@ -1201,9 +1466,22 @@ void		IO::UART::start(int baudRate, Mode mode)
 		
 		*ClockControl &= ~ClockControl_UART;
 		
+		InterruptsDisable();
 		delete IOCore.uartReceiveBuffer;
 		IOCore.uartReceiveBuffer = 0;
 		system.completeTask(IOCore.uartRecvTask, false);
+		
+		//empty the queue
+		IOCore::TaskQueueItem* task = IOCore.uartCurrentWriteTask;
+		while(task != 0)
+		{
+			IOCore::TaskQueueItem* t = task;
+			task = task->next;
+			system.completeTask(t->task, false);	//cancel the task
+			delete t;
+		}
+		IOCore.uartCurrentWriteTask = 0;
+		InterruptsEnable();
 		
 		//@@ It remains a point of debate whether peripherals should change pin state...
 		io.txd.setMode(IO::Pin::Default);
@@ -1228,8 +1506,10 @@ void		IO::UART::startWithExplicitRatio(int divider, int fracN, int fracD, Mode m
 	(void)*UARTLineStatus;	//clear status
 	
 	//set up UART interrupt
-	*InterruptEnableSet1 = Interrupt1_UART;	//enable UART interrupts in the interrupt controller
 	*UARTInterrupts = (UARTInterrupts_ReceivedData | UARTInterrupts_TxBufferEmpty | UARTInterrupts_RxLineStatus);	//enable conditions for the UART to interrupt
+	*InterruptEnableSet1 = Interrupt1_UART;	//enable UART interrupts in the interrupt controller
+	
+	//IRQ_UART();		//IRQ_UART does some housekeeping required for to receive the first byte
 }
 
 int			IO::UART::bytesAvailable(void) const
@@ -1245,33 +1525,16 @@ Task		IO::UART::bytesReceived(void)
 	return(IOCore.uartRecvTask);
 }
 
-extern "C"
-void	IRQ_UART(void)
+void sendStuff(void)
 {
-	bool received = false;
-	
-	//receive any available bytes
-	while(*UARTLineStatus & UARTLineStatus_ReceiverDataReady)
-	{
-		if(!IOCore.uartReceiveBuffer->write(*UARTData))
-			break;
-		
-		received = true;
-	}
-	
-	if(received && (IOCore.uartRecvTask != Task()))
-	{
-		system.completeTask(IOCore.uartRecvTask);
-		IOCore.uartRecvTask = Task();
-	}
-	
 	//do we have bytes to send?
-	while(IOCore.uartCurrentWriteTask != 0)
+	IOCore::WriteTask* writeTask;
+	while((writeTask = IOCore.uartCurrentWriteTask) != 0)
 	{
-		IOCore::WriteTask* writeTask = IOCore.uartCurrentWriteTask;
 		//push chars only while there's room.
+		int count = 16;	//stupid '550 uart
 		while(		(writeTask->idx < writeTask->len)	//while there are chars to send
-					&& (*UARTLineStatus & UARTLineStatus_TxHoldingRegisterEmpty)	//and the FIFO isn't full
+					&& count--	//and the FIFO isn't full
 				)
 			*UARTData = writeTask->data[writeTask->idx++];	//push chars into the FIFO
 		
@@ -1282,10 +1545,60 @@ void	IRQ_UART(void)
 			delete writeTask;
 			
 			if(IOCore.uartCurrentWriteTask == 0)
-				*UARTInterrupts &= ~UARTInterrupts_TxBufferEmpty;	//stop being notified on TX ready
+				break;
 		}
 		else
-			break;	//don't move to the next packet yet
+			return;		//come back around when there are FIFO bytes free
+	}
+	*UARTInterrupts &= ~UARTInterrupts_TxBufferEmpty;	//stop being notified on TX ready
+}
+
+INTERRUPT void		IRQ_UART(void)
+{
+	bool received = false;
+	
+	unsigned int iid = 0;
+	
+	//the UARTInterruptID_TxBufferEmpty ("THRE" in the datasheet) reason doesn't fire until alfter bytes have flowed through the FIFO
+	//  so prime the pump here.
+	//if((*UARTLineStatus & (UARTLineStatus_TxHoldingRegisterEmpty | UARTLineStatus_TransmitterEmpty))
+	//	== (UARTLineStatus_TxHoldingRegisterEmpty | UARTLineStatus_TransmitterEmpty))
+	//	goto initialTransmit;	//will loop through for legit iid reasons after
+	
+	while(((iid = *UARTInterruptID) & UARTInterruptID_InterruptPending) == 0)
+	{
+		switch(iid & UARTInterruptID_ReasonMask)
+		{
+		case UARTInterruptID_ReceiveException:
+			(volatile void)*UARTLineStatus;
+			break;
+			
+		case UARTInterruptID_DataAvailable:
+		case UARTInterruptID_ReceiveTimeout:
+			//receive any available bytes
+			while(*UARTLineStatus & UARTLineStatus_ReceiverDataReady)
+			{
+				if(!IOCore.uartReceiveBuffer->write(*UARTData))
+					break;
+				
+				received = true;
+			}
+			break;
+				
+		case UARTInterruptID_TxBufferEmpty:
+			sendStuff();
+			break;
+			
+		case UARTInterruptID_Modem:
+			//don't care
+			break;
+		}
+	}
+	
+	if(received && (IOCore.uartRecvTask != Task()))
+	{
+		system.completeTask(IOCore.uartRecvTask);
+		IOCore.uartRecvTask = Task();
 	}
 }
 
@@ -1328,18 +1641,24 @@ Task		IO::UART::write(unsigned int w, IO::UART::Format format)
 
 Task		IO::UART::write(byte const* s, int length)
 {
-	Task task = system.createTask();
-	
 	if(length < 0)
 		length = stringZeroLength(s);
 	
+	Task task = system.createTask();
 	IOCore::WriteTask* writeTask = new(length) IOCore::WriteTask(s, length);
 	writeTask->task = task;
 	
 	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.uartCurrentWriteTask, writeTask);
 	*UARTInterrupts |= UARTInterrupts_TxBufferEmpty;	//notify when we can send bytes
 	
-	IRQ_UART();	//provoke the system: in simple cases this will transmit and complete synchronously
+	//@@provoke the system? in simple cases this will transmit and complete synchronously
+	//*InterruptTrigger = InterruptTrigger_UART;	//STIR things up
+	
+	InterruptsDisable();
+	if((*UARTLineStatus & (UARTLineStatus_TxHoldingRegisterEmpty | UARTLineStatus_TransmitterEmpty))
+		== (UARTLineStatus_TxHoldingRegisterEmpty | UARTLineStatus_TransmitterEmpty))
+		sendStuff();
+	InterruptsEnable();
 	
 	return(task);
 }
@@ -1347,7 +1666,7 @@ Task		IO::UART::write(byte const* s, int length)
 ////////////////////////////////////////////////////////////////
 // I2C
 
-void			IRQ_I2C(void)
+INTERRUPT void		IRQ_I2C(void)
 {
 	int status = *I2CStatus;
 	IOCore::WriteTask* currentTask = IOCore.i2cCurrentTask;
@@ -1436,7 +1755,7 @@ void	IO::I2C::start(int bitRate, IO::I2C::Role role)
 		*I2CClockLowTime = bitHalfPeriod;
 		
 		*I2CControlSet = I2CControlSet_EnableI2C;
-		*InterruptEnableSet1 = Interrupt1_I2C;
+		//@@temp *InterruptEnableSet1 = Interrupt1_I2C;
 	}
 	else
 	{
