@@ -1,8 +1,6 @@
 #include "GalagoAPI.h"
 #include "LPC13xx.h"
 
-#include <stdarg.h>
-
 //strictly a property of the circuit the chip is soldered to
 #define HARDWARE_EXTERNAL_CRYSTAL_FREQUENCY (12000000UL)
 
@@ -300,7 +298,6 @@ bool					Buffer::Equals(byte const* str, size_t length) const
 	return((length == _b->length) && StartsWith(str, length));
 }
 
-/*
 static bool		isAsciiBinaryChar(char ascii)
 {
 	return((ascii & ~1) == '0');
@@ -308,30 +305,28 @@ static bool		isAsciiBinaryChar(char ascii)
 
 static bool		isAsciiOctalChar(char ascii)
 {
-	return(ascii >= '0' && ascii <= '7');
+	return((ascii - '0') < 8);
 }
 
 static bool		isAsciiDecimalChar(char ascii)
 {
-	return(ascii >= '0' && ascii <= '9');
+	return((ascii - '0') < 10);
 }
 
-static bool		isAsciiHexChar(char ascii)
+static int		asciiHexChar(char ascii)
 {
-	return((ascii >= '0' && ascii <= '9') || (ascii >= 'A' && ascii <= 'F') || (ascii >= 'a' && ascii <= 'f'));
-}
-static u8		asciiHexChar(char ascii)
-{
-	return((ascii >= '0' && ascii <= '9')? (ascii - '0') : ((ascii >= 'a' && ascii <= 'f')? (ascii - 'a' + 10) : ((ascii >= 'A' && ascii <= 'F')? (ascii - 'A' + 10) : 0xFF)));
+	if((ascii - '0') < 10)		return(ascii - '0');
+	ascii -= ('a' -'A');
+	if((ascii - 'A') < 6)		return(10 + ascii - 'A');
+	else						return(-1);
 }
 
 unsigned int			Buffer::ParseUint(int base)
 {
-	if(_p == 0)	return(0);
+	if(_b == 0)	return(0);
 	
-	GenericBuffer* buffer = (GenericBuffer*)_p;
-	size_t length = buffer->length;
-	char const* ascii = (char const*)buffer->data;
+	size_t length = _b->length;
+	char const* ascii = (char const*)_b->data;
 	unsigned int value = 0;
 	
 	switch(base)
@@ -361,19 +356,10 @@ unsigned int			Buffer::ParseUint(int base)
 		break;
 		
 	case 16:	//big-endian hexadecimal
-		while(isAsciiHexChar(*ascii) && (length-- > 0))
-			value = (value << 4) | asciiHexChar(*ascii++);
-		break;
-		
-	case -16:	//little-endian hexadecimal
 		{
-			bool counter = false;
-			while(isAsciiHexChar(*ascii) && (length-- > 0))
-			{
-				value = (value >> 4) | (asciiHexChar(*ascii++) << 28);
-				if(counter)	value = ((value >> 4) & 0x0F000000) | ((value << 4) & 0xF0000000) | (value & 0xFFFFFF);
-				counter = !counter;
-			}
+			int asciiChar;
+			while(((asciiChar = asciiHexChar(*ascii++)) >= 0) && (length-- > 0))
+				value = (value << 4) | asciiChar;
 		}
 		break;
 	
@@ -387,11 +373,10 @@ unsigned int			Buffer::ParseUint(int base)
 
 signed int				Buffer::ParseInt(int base)
 {
-	if(_p == 0)	return(0);
+	if(_b == 0)	return(0);
 	
-	GenericBuffer* buffer = (GenericBuffer*)_p;
-	size_t length = buffer->length;
-	char const* ascii = (char const*)buffer->data;
+	size_t length = _b->length;
+	char const* ascii = (char const*)_b->data;
 	int value = 0;
 	
 	switch(base)
@@ -411,7 +396,6 @@ signed int				Buffer::ParseInt(int base)
 	
 	return(value);
 }
-*/
 
 ssize_t					Buffer::IndexOf(byte b, size_t offset)
 {
@@ -592,6 +576,9 @@ static IOCore IOCore;
 	
 	*InterruptEnableClear0 = (~0);
 	*InterruptEnableClear1 = (~0);
+	
+	//The tickrate is 400kHz
+	*SystickClockDivider = 30;	//because the chip starts at 12MHz initially. At 72MHz this would be 180.
 	
 	InterruptsEnable();	//enable global interrupts
 }
@@ -958,44 +945,63 @@ bool			System::wait(Task t, System::InvokeCallbacksOption invokeCallbacks)
 	return(t._t->_flags < 0x8000);
 }
 
-static void		System_wakeFromSpan(void)
+static void		System_wakeFromSpan(unsigned int point)
 {
 	//take the current systick down-counter value
 	//subtract that value from the span
 	//subtract the span from each queued task
 	
-	unsigned int span = *SystickReload - *SystickValue;
+	unsigned int span = *SystickReload - point, newSpan = 0;
 	for(IOCore::TimerTask* timer = IOCore.timerCurrentTask; timer != 0; timer = (IOCore::TimerTask*)timer->next)
+	{
 		timer->span = (timer->span > span)? (timer->span - span) : 0;
-}
-static void		System_reloadSystick(int milliseconds)
-{
-	*SystickReload = milliseconds;
+		if((newSpan == 0) && (timer->span > 0))
+			newSpan = timer->span;
+	}
+	
+	*SystickReload = newSpan;
 	*SystickValue = 0;
-	*SystickControl = SystickControl_Enable | SystickControl_InterruptEnabled;
+	*SystickControl = newSpan? (SystickControl_Enable | SystickControl_InterruptEnabled) : 0;
 }
 
 Task			System::delay(int milliseconds)
 {
-	System_wakeFromSpan();
+	//convert to ticks
+	milliseconds *= 400;	//400kHz tickrate
 	
 	//insert a task into the queue
+	Task task = system.createTask();
 	IOCore::TimerTask* timer = new IOCore::TimerTask(milliseconds);
-	timer->task = system.createTask();
+	timer->task = task;
 	
-	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.timerCurrentTask, timer);
+	//needs special deadline-order queueing
+	InterruptsDisable();
+		
+		System_wakeFromSpan(*SystickValue);
+		
+		IOCore::TimerTask** p = (IOCore::TimerTask**)&IOCore.timerCurrentTask;	//ok, inside critical section
+		if(*p != 0)
+		{
+			while((*p != 0) && ((*p)->span < milliseconds))
+				p = (IOCore::TimerTask**)&((*p)->next);
+			timer->next = *p;
+		}
+		*p = timer;
+		
+		System_wakeFromSpan(*SystickValue);
+		
+	InterruptsEnable();
 	
-	//if the queue was empty, enable the systick timer/interrupt and set the span
-	if(timer->next == 0)
-		System_reloadSystick(milliseconds);
+	return(task);
 }
 
-//fundamental frequency of 1kHz
+//tickrate is 400kHz
+extern "C"
 INTERRUPT void		_InternalIRQ_SysTick(void)
 {
-	System_wakeFromSpan();
+	io.led = !io.led;
 	
-	bool reloaded = false;
+	System_wakeFromSpan(0);	//defeat SysTick's auto-reloading by forcing it to zero
 	
 	//if we're at a deadline, deadline = dequeue the top task(s)
 	for(IOCore::TimerTask* timer = IOCore.timerCurrentTask; timer != 0;)
@@ -1005,21 +1011,14 @@ INTERRUPT void		_InternalIRQ_SysTick(void)
 			system.completeTask(timer->task, true);
 			IOCore::TimerTask* old = timer;
 			
-			timer = (IOCore::TimerTask*)timer->next;
+			//this works because we can only dequeue timer tasks from the beginning of the list
+			IOCore.timerCurrentTask = timer = (IOCore::TimerTask*)timer->next;
 			
 			delete old;
 		}
-		else if(!reloaded)
-		{
-			reloaded = true;
-			
-			//reload systick and span with the delay of the top task or disable it
-			System_reloadSystick(timer->span);
-		}
+		else
+			timer = (IOCore::TimerTask*)timer->next;
 	}
-	
-	if(!reloaded)
-		*SystickValue = *SystickReload = *SystickControl = 0;	//stop timer
 }
 
 

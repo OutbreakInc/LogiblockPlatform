@@ -83,8 +83,9 @@ extern "C" void IRQ_SPI1(void) WEAK_IGNORE;
 
 typedef void (*IRQVector)(void);
 
+//this is named "null" as a debugging enhancement and because nothing should depend on this symbol
 extern "C"
-IRQVector const _vectors[] __attribute__ ((section(".isr_vector"), used)) =
+IRQVector const null[] __attribute__ ((section(".isr_vector"), used)) =
 {
 	(IRQVector)STACK_TOP,	// Initial stack pointer value
 	&_start,				// Reset vector
@@ -206,9 +207,9 @@ extern "C" void STARTUP __attribute__((naked)) _gaunt_start(void)
 	_HardFault();
 }
 
-extern "C" void STARTUP INTERRUPT _HardFault(void)
+extern "C" void STARTUP INTERRUPT __attribute__((naked)) _HardFault(void)
 {
-	__asm__ volatile ("bkpt 2"::);	//you may single-step (gdb: `stepi`) twice to go to the fault point
+	//__asm__ volatile ("bkpt 2"::);	//you may single-step (gdb: `stepi`) twice to go to the fault point
 }
 
 extern "C" void STARTUP INTERRUPT _SVCall(void)
