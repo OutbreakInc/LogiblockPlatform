@@ -999,8 +999,6 @@ Task			System::delay(int milliseconds)
 extern "C"
 INTERRUPT void		_InternalIRQ_SysTick(void)
 {
-	io.led = !io.led;
-	
 	System_wakeFromSpan(0);	//defeat SysTick's auto-reloading by forcing it to zero
 	
 	//if we're at a deadline, deadline = dequeue the top task(s)
