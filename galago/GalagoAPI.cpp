@@ -1134,7 +1134,7 @@ static unsigned char const IO_ioConfigForPin[] =
 	//@@find a way to defer this via refcount with debouncing to avoid unnecessary power transitions and warm-up
 	*PowerDownControl &= ~PowerDownControl_ADC;	//power on the ADC
 	*ADCInterrupt = ADCInterrupt_InterruptOnAny;
-	*ADCControl = (3 << 8) | ADCControl_10BitSample_11Clocks;	//set ADC divider to yield a clock rate under 4.5MHz (12MHz / 4.5MHz)
+	*ADCControl = (1 << 8) | ADCControl_10BitSample_11Clocks;	//set ADC divider to yield a clock rate under 4.5MHz (12MHz / 4.5MHz)
 	
 	Pin* p = &p0;
 	for(int i = 0; i < 26; i++)
@@ -1152,7 +1152,7 @@ INTERRUPT void		IRQ_ADC(void)
 {
 	//deselect the channel and reset the run mode (this has the effect of stopping the ADC
 	//  if it isn't restarted for the next conversion.
-	*ADCData &= ~(ADCControl_ChannelSelectBitmask | ADCControl_StartStopMask);
+	*ADCControl &= ~(ADCControl_ChannelSelectBitmask | ADCControl_StartStopMask);
 	
 	//for performance, flexibility and jam-resistance, always start the next task before completing the current one.
 	IOCore::ADCTask* last = IOCore.adcCurrentTask;
@@ -1221,16 +1221,18 @@ Task			IO::Pin::readAnalog(void)
 
 unsigned int	IO::Pin::analogValue(void) const
 {
+	unsigned int value;
 	switch(PIN_ID(v))
 	{
-	case PIN_A0:	return(*ADC0Data);	break;
-	case PIN_A1:	return(*ADC1Data);	break;
-	case PIN_A2:	return(*ADC2Data);	break;
-	case PIN_A3:	return(*ADC3Data);	break;
-	case PIN_A5:	return(*ADC5Data);	break;
-	case PIN_A7:	return(*ADC7Data);	break;
-	default:		return(0);
+	case PIN_A0:	value = *ADC0Data;	break;
+	case PIN_A1:	value = *ADC1Data;	break;
+	case PIN_A2:	value = *ADC2Data;	break;
+	case PIN_A3:	value = *ADC3Data;	break;
+	case PIN_A5:	value = *ADC5Data;	break;
+	case PIN_A7:	value = *ADC7Data;	break;
+	default:		value = 0;			break;
 	}
+	return(value & 0xFFFF);
 }
 
 void			IO::Pin::setMode(Mode mode, Feature feature)
@@ -1275,13 +1277,6 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 			*pinConfig = (*pinConfig & ~0x87) | ((kPinFunc1IsADC & mask)? 1 : 2);	//the additional 0x80 disables digital I/O too
 		}
 		break;
-	case IO::Pin::Reset:
-		if(id == PIN_P0)	//only gpio0.0 has reset ability
-		{
-			*pinConfig &= ~0x7;
-			//it so happens mode 0 is reset on gpio0.0, so leave it
-		}
-		break;
 	case IO::Pin::SPI:
 		if(kPinSupportsSPI & mask)
 		{
@@ -1308,6 +1303,15 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 		}
 		break;
 
+	case IO::Pin::Reset:
+		if(id == PIN_P0)	//only gpio0.0 has reset ability
+			//it so happens mode 0 is reset on gpio0.0, so leave it
+			*pinConfig &= ~0x7;
+		break;
+	case IO::Pin::ClockOutput:
+		if(id == PIN_P1)
+			*pinConfig = (*pinConfig & ~0x7) | 1;
+		break;
 	case IO::Pin::Manual:
 		break;
 	}
