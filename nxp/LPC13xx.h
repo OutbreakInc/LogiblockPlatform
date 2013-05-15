@@ -292,7 +292,7 @@
 	REGISTER	IOConfigPIO2_10 =		REGISTER_ADDRESS(0x40044058);
 		enum IOConfigPIO2_10
 		{
-			IOConfigPIO2_10_PullDown			=	(0x01 << 3),
+			IOConfigPIO2_10_PullDown		=	(0x01 << 3),
 			IOConfigPIO2_10_PullUp 			=	(0x02 << 3),
 			IOConfigPIO2_10_Repeat 			=	(0x03 << 3),
 			
@@ -364,8 +364,8 @@
 			
 			IOConfigPIO1_10_Hysteresis		=	(0x01 << 5),
 			
-			IOConfigPIO1_10_DigitalMode		=	(0x01 << 7),
 			IOConfigPIO1_10_AnalogMode		=	(0x00 << 7),
+			IOConfigPIO1_10_DigitalMode		=	(0x01 << 7),
 		};
 	REGISTER	IOConfigPIO2_11 =		REGISTER_ADDRESS(0x40044070);
 		enum IOConfigPIO2_11
@@ -393,8 +393,8 @@
 			
 			IOConfigPIO0_11_Hysteresis		=	(0x01 << 5),
 			
-			IOConfigPIO0_11_DigitalMode		=	(0x00 << 7),
-			IOConfigPIO0_11_AnalogMode		=	(0x01 << 7),
+			IOConfigPIO0_11_AnalogMode		=	(0x00 << 7),
+			IOConfigPIO0_11_DigitalMode		=	(0x01 << 7),
 		};
 	REGISTER	IOConfigPIO1_0 =		REGISTER_ADDRESS(0x40044078);
 		enum IOConfigPIO1_0
@@ -410,8 +410,8 @@
 			
 			IOConfigPIO1_0_Hysteresis		=	(0x01 << 5),
 			
-			IOConfigPIO1_0_DigitalMode		=	(0x00 << 7),
-			IOConfigPIO1_0_AnalogMode		=	(0x01 << 7),
+			IOConfigPIO1_0_AnalogMode		=	(0x00 << 7),
+			IOConfigPIO1_0_DigitalMode		=	(0x01 << 7),
 		};
 	REGISTER	IOConfigPIO1_1 =		REGISTER_ADDRESS(0x4004407C);
 		enum IOConfigPIO1_1
@@ -427,8 +427,8 @@
 			
 			IOConfigPIO1_1_Hysteresis		=	(0x01 << 5),
 			
-			IOConfigPIO1_1_DigitalMode		=	(0x00 << 7),
-			IOConfigPIO1_1_AnalogMode		=	(0x01 << 7),
+			IOConfigPIO1_1_AnalogMode		=	(0x00 << 7),
+			IOConfigPIO1_1_DigitalMode		=	(0x01 << 7),
 		};
 	REGISTER	IOConfigPIO1_2 =		REGISTER_ADDRESS(0x40044080);
 		enum IOConfigPIO1_2
@@ -444,8 +444,8 @@
 			
 			IOConfigPIO1_2_Hysteresis		=	(0x01 << 5),
 			
-			IOConfigPIO1_2_DigitalMode		=	(0x00 << 7),
-			IOConfigPIO1_2_AnalogMode		=	(0x01 << 7),
+			IOConfigPIO1_2_AnalogMode		=	(0x00 << 7),
+			IOConfigPIO1_2_DigitalMode		=	(0x01 << 7),
 		};
 	REGISTER	IOConfigPIO3_0 =		REGISTER_ADDRESS(0x40044084);
 		enum IOConfigPIO3_0
@@ -498,8 +498,8 @@
 			
 			IOConfigPIO1_3_Hysteresis		=	(0x01 << 5),
 			
-			IOConfigPIO1_3_DigitalMode		=	(0x00 << 7),
-			IOConfigPIO1_3_AnalogMode		=	(0x01 << 7),
+			IOConfigPIO1_3_AnalogMode		=	(0x00 << 7),
+			IOConfigPIO1_3_DigitalMode		=	(0x01 << 7),
 		};
 	REGISTER	IOConfigPIO1_4 =		REGISTER_ADDRESS(0x40044094);
 		enum IOConfigPIO1_4
@@ -514,8 +514,8 @@
 			
 			IOConfigPIO1_4_Hysteresis		=	(0x01 << 5),
 			
-			IOConfigPIO1_4_DigitalMode		=	(0x00 << 7),
-			IOConfigPIO1_4_AnalogMode		=	(0x01 << 7),
+			IOConfigPIO1_4_AnalogMode		=	(0x00 << 7),
+			IOConfigPIO1_4_DigitalMode		=	(0x01 << 7),
 		};
 	REGISTER	IOConfigPIO1_11 =		REGISTER_ADDRESS(0x40044098);
 		enum IOConfigPIO1_11
@@ -529,8 +529,8 @@
 			
 			IOConfigPIO1_11_Hysteresis		=	(0x01 << 5),
 			
-			IOConfigPIO1_11_DigitalMode		=	(0x00 << 7),
-			IOConfigPIO1_11_AnalogMode		=	(0x01 << 7),
+			IOConfigPIO1_11_AnalogMode		=	(0x00 << 7),
+			IOConfigPIO1_11_DigitalMode		=	(0x01 << 7),
 		};
 	REGISTER	IOConfigPIO3_2 =		REGISTER_ADDRESS(0x4004409C);
 		enum IOConfigPIO3_2
@@ -1125,7 +1125,19 @@
 
 	REGISTER	ADCData =					REGISTER_ADDRESS(0x4001C004);
 	REGISTER	ADCInterrupt =				REGISTER_ADDRESS(0x4001C00C);
-
+		enum ADCInterrupt
+		{
+			ADCInterrupt_InterruptOnADC0	=	(1 << 0),
+			ADCInterrupt_InterruptOnADC1	=	(1 << 1),
+			ADCInterrupt_InterruptOnADC2	=	(1 << 2),
+			ADCInterrupt_InterruptOnADC3	=	(1 << 3),
+			ADCInterrupt_InterruptOnADC4	=	(1 << 4),
+			ADCInterrupt_InterruptOnADC5	=	(1 << 5),
+			ADCInterrupt_InterruptOnADC6	=	(1 << 6),
+			ADCInterrupt_InterruptOnADC7	=	(1 << 7),
+			ADCInterrupt_InterruptOnAny		=	(1 << 8),
+		};
+		
 	REGISTER	ADC0Data =					REGISTER_ADDRESS(0x4001C010);
 	REGISTER	ADC1Data =					REGISTER_ADDRESS(0x4001C014);
 	REGISTER	ADC2Data =					REGISTER_ADDRESS(0x4001C018);

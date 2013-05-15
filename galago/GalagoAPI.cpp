@@ -459,11 +459,9 @@ struct IOCore
 	struct ADCTask: public TaskQueueItem
 	{
 		int				channel;
-		unsigned int*	output;
 		
-						ADCTask(int chan, unsigned int* out):
-							channel(chan),
-							output(out)
+						ADCTask(int chan):
+							channel(chan)
 		{}
 	};
 	
@@ -553,11 +551,9 @@ struct IOCore
 	
 	static void		queueItem(TaskQueueItem** head, TaskQueueItem* item)
 	{
-		InterruptsDisable();
 		while(*head != 0)
 			head = &((*head)->next);
 		*head = item;
-		InterruptsEnable();
 	}
 };
 
@@ -1136,7 +1132,9 @@ static unsigned char const IO_ioConfigForPin[] =
 	*IOConfigSCKLocation = IOConfigSCKLocation_PIO0_6;	//put SCK0 on pin pio0.6, labeled 'SCK' on Galago
 	
 	//@@find a way to defer this via refcount with debouncing to avoid unnecessary power transitions and warm-up
-	*PowerDownControl |= PowerDownControl_ADC;	//power on the ADC
+	*PowerDownControl &= ~PowerDownControl_ADC;	//power on the ADC
+	*ADCInterrupt = ADCInterrupt_InterruptOnAny;
+	*ADCControl = (3 << 8) | ADCControl_10BitSample_11Clocks;	//set ADC divider to yield a clock rate under 4.5MHz (12MHz / 4.5MHz)
 	
 	Pin* p = &p0;
 	for(int i = 0; i < 26; i++)
@@ -1152,8 +1150,6 @@ static unsigned char const IO_ioConfigForPin[] =
 
 INTERRUPT void		IRQ_ADC(void)
 {
-	//save the result of the last conversion
-	*IOCore.adcCurrentTask->output = *ADCData;
 	//deselect the channel and reset the run mode (this has the effect of stopping the ADC
 	//  if it isn't restarted for the next conversion.
 	*ADCData &= ~(ADCControl_ChannelSelectBitmask | ADCControl_StartStopMask);
@@ -1169,7 +1165,7 @@ INTERRUPT void		IRQ_ADC(void)
 	{
 		//shut down the ADC - deselect the clock
 		*ClockControl &= ~ClockControl_ADC;
-		
+		*InterruptEnableClear1 = Interrupt1_ADC;	//disable interrupt
 		//*PowerDownControl |= PowerDownControl_ADC;	//@@probably overkill
 	}
 	
@@ -1187,7 +1183,7 @@ void			IO::Pin::write(int value)
 	PIN_GPIO_DATA_PORT(PIN_IO_PORT(v))[1 << PIN_IO_PIN_NUM(v)] = (value ? (~0) : 0);
 }
 
-Task			IO::Pin::readAnalog(unsigned int* result)
+Task			IO::Pin::readAnalog(void)
 {
 	*ClockControl |= ClockControl_ADC;	//enable the ADC clock if not already active
 	
@@ -1200,15 +1196,41 @@ Task			IO::Pin::readAnalog(unsigned int* result)
 	case PIN_A3:	adcChannel = 3;	break;
 	case PIN_A5:	adcChannel = 5;	break;
 	case PIN_A7:	adcChannel = 7;	break;
+	default:
+		return(Task());	//no analog on this pin
 	}
 	
 	Task task = system.createTask();
-	IOCore::ADCTask* adcTask = new IOCore::ADCTask(adcChannel, result);
+	IOCore::ADCTask* adcTask = new IOCore::ADCTask(adcChannel);
 	adcTask->task = task;
 	
-	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.adcCurrentTask, adcTask);
+	InterruptsDisable();
+		
+		IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.adcCurrentTask, adcTask);
+		
+		if(IOCore.adcCurrentTask == adcTask);
+		{
+			*InterruptEnableSet1 = Interrupt1_ADC;
+			*ADCControl |= (ADCControl_StartNow | (1 << adcChannel));
+		}
+		
+	InterruptsEnable();
 	
 	return(task);
+}
+
+unsigned int	IO::Pin::analogValue(void) const
+{
+	switch(PIN_ID(v))
+	{
+	case PIN_A0:	return(*ADC0Data);	break;
+	case PIN_A1:	return(*ADC1Data);	break;
+	case PIN_A2:	return(*ADC2Data);	break;
+	case PIN_A3:	return(*ADC3Data);	break;
+	case PIN_A5:	return(*ADC5Data);	break;
+	case PIN_A7:	return(*ADC7Data);	break;
+	default:		return(0);
+	}
 }
 
 void			IO::Pin::setMode(Mode mode, Feature feature)
@@ -1232,8 +1254,12 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 		{
 			if(kPinSupportsGPIO & mask)
 			{
-				if(kPinFunc1IsGPIO & mask)	*pinConfig = (*pinConfig & ~0x7) | 1;	//for some pins, GPIO is mode 1
-				else						*pinConfig &= ~0x7;						//else mode is 0
+				unsigned int newValue = *pinConfig & ~0x7;
+				if(kPinSupportsADC & mask)	//analog-capable pins need to have their digital I/O (re)enabled
+					newValue |= 0x80;
+				
+				if(kPinFunc1IsGPIO & mask)	*pinConfig = newValue | 1;	//for some pins, GPIO is mode 1
+				else						*pinConfig = newValue;		//else mode is 0
 				
 				unsigned int bit = (1 << PIN_IO_PIN_NUM(v));
 				REGISTER gpioDirPort = PIN_GPIO_DIR_PORT(PIN_IO_PORT(v));
@@ -1246,7 +1272,7 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 	case IO::Pin::AnalogInput:
 		if(kPinSupportsADC & mask)
 		{
-			*pinConfig = (*pinConfig & ~0x7) | ((kPinFunc1IsADC & mask)? 1 : 2);
+			*pinConfig = (*pinConfig & ~0x87) | ((kPinFunc1IsADC & mask)? 1 : 2);	//the additional 0x80 disables digital I/O too
 		}
 		break;
 	case IO::Pin::Reset:
@@ -1342,8 +1368,10 @@ void			IO::SPI::start(int bitRate, Mode mode, Role role)
 
 void			IO_SPI_queueTask(IOCore::SPITask* spiTask)
 {
-	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.spiCurrentTask, spiTask);
-	*SPI0InterruptEnable |= SPI0Interrupt_TransmitFIFOHalfEmpty;
+	InterruptsDisable();
+		IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.spiCurrentTask, spiTask);
+		*SPI0InterruptEnable |= SPI0Interrupt_TransmitFIFOHalfEmpty;
+	InterruptsEnable();
 }
 
 Task			IO::SPI::write(byte b, int length, Buffer bytesReadBack)
@@ -1522,7 +1550,7 @@ Task		IO::UART::bytesReceived(void)
 	return(IOCore.uartRecvTask);
 }
 
-void sendStuff(void)
+void IO_UART_startTransmission(void)
 {
 	//do we have bytes to send?
 	IOCore::WriteTask* writeTask;
@@ -1583,7 +1611,7 @@ INTERRUPT void		IRQ_UART(void)
 			break;
 				
 		case UARTInterruptID_TxBufferEmpty:
-			sendStuff();
+			IO_UART_startTransmission();
 			break;
 			
 		case UARTInterruptID_Modem:
@@ -1645,16 +1673,14 @@ Task		IO::UART::write(byte const* s, int length)
 	IOCore::WriteTask* writeTask = new(length) IOCore::WriteTask(s, length);
 	writeTask->task = task;
 	
-	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.uartCurrentWriteTask, writeTask);
-	*UARTInterrupts |= UARTInterrupts_TxBufferEmpty;	//notify when we can send bytes
-	
-	//@@provoke the system? in simple cases this will transmit and complete synchronously
-	//*InterruptTrigger = InterruptTrigger_UART;	//STIR things up
-	
 	InterruptsDisable();
-	if((*UARTLineStatus & (UARTLineStatus_TxHoldingRegisterEmpty | UARTLineStatus_TransmitterEmpty))
-		== (UARTLineStatus_TxHoldingRegisterEmpty | UARTLineStatus_TransmitterEmpty))
-		sendStuff();
+		IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.uartCurrentWriteTask, writeTask);
+		*UARTInterrupts |= UARTInterrupts_TxBufferEmpty;	//notify when we can send bytes
+		
+		if((*UARTLineStatus & (UARTLineStatus_TxHoldingRegisterEmpty | UARTLineStatus_TransmitterEmpty))
+			== (UARTLineStatus_TxHoldingRegisterEmpty | UARTLineStatus_TransmitterEmpty))
+			IO_UART_startTransmission();
+		
 	InterruptsEnable();
 	
 	return(task);
@@ -1768,6 +1794,9 @@ Task	IO::I2C::write(byte address, byte const* s, int length, IO::I2C::RepeatedSt
 	IOCore::WriteTask* writeTask = new(length) IOCore::WriteTask(s, length);
 	writeTask->task = task;
 	
-	IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.i2cCurrentTask, writeTask);
+	InterruptsDisable();
+		IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.i2cCurrentTask, writeTask);
+	InterruptsEnable();
+	
 	return(task);
 }

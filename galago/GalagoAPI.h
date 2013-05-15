@@ -173,7 +173,8 @@ public:
 		inline			operator bool(void)		{return((bool)read());}
 
 		int				read(void);
-		Task			readAnalog(unsigned int* result);
+		Task			readAnalog(void);
+		unsigned int	analogValue(void) const;	//updated when readAnalog() is complete
 		void			write(int value);
 
 		inline	void	setOutput(void)		{setMode(DigitalOutput);}
