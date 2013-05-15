@@ -12,7 +12,7 @@ extern "C" void ignoreInterrupt(void) INTERRUPT;
 extern "C" void _start(void) __attribute__ ((weak, alias("_gaunt_start"), used));
 extern "C" void _gaunt_start(void);
 extern "C" void _HardFault(void) INTERRUPT;
-extern "C" void _SVCall(void) INTERRUPT;
+extern "C" void _SVCall(void) WEAK_IGNORE;
 extern "C" void _InternalIRQ_SysTick(void) WEAK_IGNORE;
 
 
@@ -209,17 +209,19 @@ extern "C" void STARTUP __attribute__((naked)) _gaunt_start(void)
 
 extern "C" void STARTUP INTERRUPT __attribute__((naked)) _HardFault(void)
 {
-	//__asm__ volatile ("bkpt 2"::);	//you may single-step (gdb: `stepi`) twice to go to the fault point
+	//...
 }
 
+/*
 extern "C" void STARTUP INTERRUPT _SVCall(void)
 {
 }
+*/
 
 extern "C" void STARTUP _Sleep(void)
 {
 	//@@enter PMU state
-	__asm__ volatile ("wfi"::);
+	__asm__ volatile ("wfi"::);	//chip is sleeping, waiting for the next event.
 	//@@exit PMU state
 }
 

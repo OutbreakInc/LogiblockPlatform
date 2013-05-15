@@ -1112,7 +1112,7 @@ static unsigned int const kIOPinChart[] =	//@@this could be reduced to 1/4 its s
 	PIN_STATE(PIN_A5, 1, 4),	//A5
 	PIN_STATE(PIN_A7, 1, 11),	//A7
 
-	PIN_STATE(PIN_LED, 1, 10),	//led
+	PIN_STATE(PIN_LED, 1, 10),	//led	AD6	GPIO1_10	T16_1/M1
 };
 
 #define PIN_IOCONFIG_ADDRESS(pinID)	REGISTER_ADDRESS(0x40044000 + IO_ioConfigForPin[pinID])
@@ -1133,8 +1133,8 @@ static unsigned char const IO_ioConfigForPin[] =
 	
 	//@@find a way to defer this via refcount with debouncing to avoid unnecessary power transitions and warm-up
 	*PowerDownControl &= ~PowerDownControl_ADC;	//power on the ADC
-	*ADCInterrupt = ADCInterrupt_InterruptOnAny;
-	*ADCControl = (1 << 8) | ADCControl_10BitSample_11Clocks;	//set ADC divider to yield a clock rate under 4.5MHz (12MHz / 4.5MHz)
+	//*ADCInterrupt = ADCInterrupt_InterruptOnAny;
+	*ADCControl = (3 << 8) | ADCControl_10BitSample_11Clocks;	//set ADC divider to yield a clock rate under 4.5MHz (12MHz / 4.5MHz)
 	
 	Pin* p = &p0;
 	for(int i = 0; i < 26; i++)
@@ -1148,6 +1148,7 @@ static unsigned char const IO_ioConfigForPin[] =
 	//@@temp 	| Interrupt1_SPI0 | Interrupt1_UART | Interrupt1_ADC;
 }
 
+/*
 INTERRUPT void		IRQ_ADC(void)
 {
 	//deselect the channel and reset the run mode (this has the effect of stopping the ADC
@@ -1173,6 +1174,7 @@ INTERRUPT void		IRQ_ADC(void)
 	system.completeTask(last->task);
 	delete last;
 }
+*/
 
 int				IO::Pin::read(void)
 {
@@ -1183,6 +1185,7 @@ void			IO::Pin::write(int value)
 	PIN_GPIO_DATA_PORT(PIN_IO_PORT(v))[1 << PIN_IO_PIN_NUM(v)] = (value ? (~0) : 0);
 }
 
+/*
 Task			IO::Pin::readAnalog(void)
 {
 	*ClockControl |= ClockControl_ADC;	//enable the ADC clock if not already active
@@ -1218,21 +1221,47 @@ Task			IO::Pin::readAnalog(void)
 	
 	return(task);
 }
+*/
+
+unsigned int	IO::Pin::readAnalog(void)
+{
+	*ClockControl |= ClockControl_ADC;
+	
+	int adcChannel;
+	switch(PIN_ID(v))
+	{
+	case PIN_A0:	adcChannel = 0;	break;
+	case PIN_A1:	adcChannel = 1;	break;
+	case PIN_A2:	adcChannel = 2;	break;
+	case PIN_A3:	adcChannel = 3;	break;
+	case PIN_A5:	adcChannel = 5;	break;
+	case PIN_A7:	adcChannel = 7;	break;
+	default:
+		return(0);	//no analog on this pin
+	}
+	
+	(void)*ADCData;
+	*ADCControl = (*ADCControl & ~ADCControl_ChannelSelectBitmask) | (1 << adcChannel) | ADCControl_StartNow;
+	unsigned int sample;
+	while(!((sample = *ADCData) & ADCData_Done));	//whoa, a spinwait! Chosen because the typ. time is 2.5us
+	
+	return(sample & 0xFFFF);
+}
 
 unsigned int	IO::Pin::analogValue(void) const
 {
-	unsigned int value;
+	unsigned int sample;
 	switch(PIN_ID(v))
 	{
-	case PIN_A0:	value = *ADC0Data;	break;
-	case PIN_A1:	value = *ADC1Data;	break;
-	case PIN_A2:	value = *ADC2Data;	break;
-	case PIN_A3:	value = *ADC3Data;	break;
-	case PIN_A5:	value = *ADC5Data;	break;
-	case PIN_A7:	value = *ADC7Data;	break;
-	default:		value = 0;			break;
+	case PIN_A0:	sample = *ADC0Data;	break;
+	case PIN_A1:	sample = *ADC1Data;	break;
+	case PIN_A2:	sample = *ADC2Data;	break;
+	case PIN_A3:	sample = *ADC3Data;	break;
+	case PIN_A5:	sample = *ADC5Data;	break;
+	case PIN_A7:	sample = *ADC7Data;	break;
+	default:		sample = 0;			break;
 	}
-	return(value & 0xFFFF);
+	return(sample & 0xFFFF);
 }
 
 void			IO::Pin::setMode(Mode mode, Feature feature)

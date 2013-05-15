@@ -1035,16 +1035,101 @@
 	
 	//Timer 1, 16-bit
 	REGISTER	Timer1Interrupts =			REGISTER_ADDRESS(0x40010000);
+		enum Timer1Interrupts
+		{
+			Timer1Interrupts_Match0Flag		=	(1 << 0),
+			Timer1Interrupts_Match1Flag		=	(1 << 1),
+			Timer1Interrupts_Match2Flag		=	(1 << 2),
+			Timer1Interrupts_Match3Flag		=	(1 << 3),
+			Timer1Interrupts_Capture0Flag	=	(1 << 4),
+		};
 	REGISTER	Timer1Control =				REGISTER_ADDRESS(0x40010004);
+		enum Timer1Control
+		{
+			Timer1Control_Enable	=	(1 << 0),
+			Timer1Control_Reset		=	(1 << 1),
+		};
 	REGISTER	Timer1Counter =				REGISTER_ADDRESS(0x40010008);
 	REGISTER	Timer1Prescaler =			REGISTER_ADDRESS(0x4001000C);
 	REGISTER	Timer1PrescaleCounter =		REGISTER_ADDRESS(0x40010010);
 	REGISTER	Timer1MatchControl =		REGISTER_ADDRESS(0x40010014);
+		enum Timer1MatchControl
+		{
+			Timer1MatchControl_Match0Interrupt	=	(1 << 0),
+			Timer1MatchControl_Match0Reset		=	(1 << 1),
+			Timer1MatchControl_Match0Stop		=	(1 << 2),
+
+			Timer1MatchControl_Match1Interrupt	=	(1 << 3),
+			Timer1MatchControl_Match1Reset		=	(1 << 4),
+			Timer1MatchControl_Match1Stop		=	(1 << 5),
+
+			Timer1MatchControl_Match2Interrupt	=	(1 << 6),
+			Timer1MatchControl_Match2Reset		=	(1 << 7),
+			Timer1MatchControl_Match2Stop		=	(1 << 8),
+
+			Timer1MatchControl_Match3Interrupt	=	(1 << 9),
+			Timer1MatchControl_Match3Reset		=	(1 << 10),
+			Timer1MatchControl_Match3Stop		=	(1 << 11),
+		};
 	REGISTER	Timer1Match0 =				REGISTER_ADDRESS(0x40010018);
 	REGISTER	Timer1Match1 =				REGISTER_ADDRESS(0x4001001C);
 	REGISTER	Timer1Match2 =				REGISTER_ADDRESS(0x40010020);
 	REGISTER	Timer1Match3 =				REGISTER_ADDRESS(0x40010024);
 	REGISTER	Timer1CaptureControl =		REGISTER_ADDRESS(0x40010028);
+		enum Timer1CaptureControl
+		{
+			Timer1CaptureControl_CaptureOnRising	=	(1 << 0),
+			Timer1CaptureControl_CaptureOnFalling	=	(1 << 1),
+			Timer1CaptureControl_InterruptOnCapture	=	(1 << 2),
+		};
+	REGISTER	Timer1CaptureValue =		REGISTER_ADDRESS(0x4001002C);
+	REGISTER	Timer1ExternalMatch =		REGISTER_ADDRESS(0x4001003C);
+		enum Timer1ExternalMatch
+		{
+			Timer1ExternalMatch_Match0State		=	(1 << 0),
+			Timer1ExternalMatch_Match1State		=	(1 << 1),
+			Timer1ExternalMatch_Match2State		=	(1 << 2),
+			Timer1ExternalMatch_Match3State		=	(1 << 3),
+			
+			Timer1ExternalMatch_Match0DoNothing	=	(0 << 4),
+			Timer1ExternalMatch_Match0Clear		=	(1 << 4),
+			Timer1ExternalMatch_Match0Set		=	(2 << 4),
+			Timer1ExternalMatch_Match0Toggle	=	(3 << 4),
+			
+			Timer1ExternalMatch_Match0DoNothing	=	(0 << 6),
+			Timer1ExternalMatch_Match0Clear		=	(1 << 6),
+			Timer1ExternalMatch_Match0Set		=	(2 << 6),
+			Timer1ExternalMatch_Match0Toggle	=	(3 << 6),
+			
+			Timer1ExternalMatch_Match0DoNothing	=	(0 << 8),
+			Timer1ExternalMatch_Match0Clear		=	(1 << 8),
+			Timer1ExternalMatch_Match0Set		=	(2 << 8),
+			Timer1ExternalMatch_Match0Toggle	=	(3 << 8),
+			
+			Timer1ExternalMatch_Match0DoNothing	=	(0 << 10),
+			Timer1ExternalMatch_Match0Clear		=	(1 << 10),
+			Timer1ExternalMatch_Match0Set		=	(2 << 10),
+			Timer1ExternalMatch_Match0Toggle	=	(3 << 10),
+		};
+	REGISTER	Timer1CountControl =		REGISTER_ADDRESS(0x40010070);
+		enum Timer1CountControl
+		{
+			Timer1CountControl_IncrementOnInternalClock		=	(0 << 0),
+			Timer1CountControl_IncrementOnRisingCapEdge		=	(1 << 0),
+			Timer1CountControl_IncrementOnFallingCapEdge	=	(2 << 0),
+			Timer1CountControl_IncrementOnEitherCapEdge		=	(3 << 0),
+			
+			Timer1CountControl_SelectCap0					=	(0 << 2),
+			Timer1CountControl_SelectCap1					=	(1 << 2),	//not supported
+			Timer1CountControl_SelectCap2					=	(2 << 2),	//not supported
+		};
+	REGISTER	Timer1PWMControl =			REGISTER_ADDRESS(0x4001003C);
+		enum Timer1PWMControl
+		{
+			Timer1PWMControl_Match1		=	(1 << 0),
+			Timer1PWMControl_Match2		=	(1 << 1),
+			Timer1PWMControl_Match3		=	(1 << 2),
+		};
 	
 	//Timer 2, 32-bit
 	REGISTER	Timer2Interrupts =			REGISTER_ADDRESS(0x40014000);
@@ -1088,7 +1173,7 @@
 			
 			ADCControl_BurstModeBitmask =			(0xFF),	//applies to automatic (burst, round-robin) mode only
 			
-			//This must be chosen so that PCLK / (ADCControl_ADCClockDividerBitmask + 1) is close to but less than 4.5MHz.
+			//This must be chosen so that PCLK / (ADCControl_ADCClockDivider + 1) is close to but less than 4.5MHz.
 			//  The clock rate may be decreased to better sample high-impedance analog sources.
 			ADCControl_ADCClockDividerBitmask =		(0xFF << 8),
 
@@ -1124,6 +1209,13 @@
 		};
 
 	REGISTER	ADCData =					REGISTER_ADDRESS(0x4001C004);
+		enum ADCData
+		{
+			ADCData_ResultLeftJustifiedMask		=	(0xFFFF),
+			ADCData_ChannelMask					=	(0x7 << 16),
+			ADCData_Overrun						=	(1 << 30),
+			ADCData_Done						=	(1 << 31),
+		};
 	REGISTER	ADCInterrupt =				REGISTER_ADDRESS(0x4001C00C);
 		enum ADCInterrupt
 		{
