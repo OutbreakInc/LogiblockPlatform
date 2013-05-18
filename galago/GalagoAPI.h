@@ -99,24 +99,24 @@ public:
 	Buffer					operator +(Buffer const& b) const;
 	Buffer&					operator +=(Buffer const& b);
 	
-	inline bool				operator ==(Buffer const& b) const		{return((b._b == _b) || (b._b && Equals(b._b->data, b._b->length)));}
+	inline bool				operator ==(Buffer const& b) const		{return((b._b == _b) || (b._b && equals(b._b->data, b._b->length)));}
 	bool					operator ==(char const* cStr) const;
-	inline bool				operator !=(Buffer const& b) const		{return((b._b != _b) || (!b._b) || !Equals(b._b->data, b._b->length));}
+	inline bool				operator !=(Buffer const& b) const		{return((b._b != _b) || (!b._b) || !equals(b._b->data, b._b->length));}
 	inline bool				operator !=(char const* cStr) const		{return(!operator == (cStr));}
 	inline					operator bool(void) const				{return(_b != 0);}
 	
-	unsigned int			ParseUint(int base = 10);
-	signed int				ParseInt(int base = 10);
+	unsigned int			parseUint(int base = 10);
+	signed int				parseInt(int base = 10);
 	
-	bool					StartsWith(byte const* str, size_t length) const;
-	bool					StartsWith(char const* cStr) const;
-	bool					Equals(byte const* str, size_t length) const;
+	bool					startsWith(byte const* str, size_t length) const;
+	bool					startsWith(char const* cStr) const;
+	bool					equals(byte const* str, size_t length) const;
 	
 	inline byte				operator[](size_t offset) const		{return((_b && (offset < _b->length))? _b->data[offset] : 0);}
 	
-	Buffer					Slice(size_t start, size_t end);
-	ssize_t					IndexOf(byte b, size_t offset = 0);
-	ssize_t					IndexOf(Buffer b, size_t offset = 0);
+	Buffer					slice(size_t start, size_t end);
+	ssize_t					indexOf(byte b, size_t offset = 0);
+	ssize_t					indexOf(Buffer b, size_t offset = 0);
 	
 private:
 	inline					Buffer(InternalBuffer* b): _b(b) {refer(b);}

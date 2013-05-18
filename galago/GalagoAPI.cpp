@@ -267,10 +267,10 @@ bool					Buffer::operator ==(char const* cStr) const
 	
 	size_t length = stringZeroLength((byte const*)cStr);
 	
-	return(Equals((byte const*)cStr, length));
+	return(equals((byte const*)cStr, length));
 }
 
-bool					Buffer::StartsWith(byte const* str, size_t length) const
+bool					Buffer::startsWith(byte const* str, size_t length) const
 {
 	if((_b == 0) || (length == 0) || (length > _b->length))
 		return(length == 0);
@@ -283,19 +283,19 @@ bool					Buffer::StartsWith(byte const* str, size_t length) const
 	return(true);
 }
 
-bool					Buffer::StartsWith(char const* cStr) const
+bool					Buffer::startsWith(char const* cStr) const
 {
 	size_t length = cStr? stringZeroLength((byte const*)cStr) : 0;
 	
-	return(StartsWith((byte const*)cStr, length));
+	return(startsWith((byte const*)cStr, length));
 }
 
-bool					Buffer::Equals(byte const* str, size_t length) const
+bool					Buffer::equals(byte const* str, size_t length) const
 {
 	if(_b == 0)
 		return(length == 0);
 	
-	return((length == _b->length) && StartsWith(str, length));
+	return((length == _b->length) && startsWith(str, length));
 }
 
 static bool		isAsciiBinaryChar(char ascii)
@@ -321,7 +321,7 @@ static int		asciiHexChar(char ascii)
 	else						return(-1);
 }
 
-unsigned int			Buffer::ParseUint(int base)
+unsigned int			Buffer::parseUint(int base)
 {
 	if(_b == 0)	return(0);
 	
@@ -371,7 +371,7 @@ unsigned int			Buffer::ParseUint(int base)
 	return(value);
 }
 
-signed int				Buffer::ParseInt(int base)
+signed int				Buffer::parseInt(int base)
 {
 	if(_b == 0)	return(0);
 	
@@ -397,7 +397,7 @@ signed int				Buffer::ParseInt(int base)
 	return(value);
 }
 
-ssize_t					Buffer::IndexOf(byte b, size_t offset)
+ssize_t					Buffer::indexOf(byte b, size_t offset)
 {
 	if(_b == 0)
 		return(-1);
@@ -411,20 +411,63 @@ ssize_t					Buffer::IndexOf(byte b, size_t offset)
 	return(-1);
 }
 
+/*
+//slow but compact implementation with minimum code size
+//  ok for small strings
 ssize_t					Buffer::IndexOf(Buffer b, size_t offset)
 {
 	if((_b == 0) || (b._b == 0))
 		return(-1);
 	
-	if(offset > _b->length)
+	if((offset > _b->length) || ((offset + b._b->length) > _b->length))
 		return(-1);
 	
-	//@@memmem requires too much memory for its jump-table. Let's use a lighter (but slower) approach.
-	//void const* point = memmem(haystack->data + offset, haystack->length - offset, needle->data, needle->length);
+	for(int i = offset, j; i < (_b->length - b._b->length);)
+	{
+		for(j = 0; (j < b._b->length) && (_b->data[i] == b._b->data[i]); i++) j++;
+		if(j == b._b->length)
+			return(i - b._b->length);
+		i += j;
+	}
+	return(-1);
+}
+*/
+
+//much faster (but less compact) implementation based on a modified Boyer-Moore-Horspool algorithm
+//  much, much faster when looking for long strings
+//  *appears to compile to ~160 bytes of Thumb2, further proving the genius of ARM
+ssize_t					Buffer::indexOf(Buffer b, size_t offset)
+{
+	unsigned char jumpTable[16];
 	
-	//return((point != 0)? ((unsigned char*)point - (unsigned char*)haystack->data) : -1);
+	if((_b == 0) || (b._b == 0) || (offset > _b->length) || ((offset + b._b->length) > _b->length))
+		return(-1);
 	
-	//@@todo
+	unsigned char l = (b._b->length <= 255)? b._b->length : 255;
+	for(int i = 0; i < 16; i++)
+		jumpTable[i] = l;
+	
+	size_t last = b._b->length - 1;
+	
+	for(size_t i = 0; i < last; i++)
+	{
+		unsigned char* p = jumpTable + (b._b->data[i] & 0xF);
+		if((last - i) < *p)
+			*p = last - i;
+	}
+	
+	unsigned char const* h = _b->data + offset;
+	size_t len = _b->length - offset;
+	while(len >= b._b->length)
+	{
+		for(size_t i = last; h[i] == b._b->data[i]; i--)
+			if(i == 0)
+				return(h - _b->data);
+		size_t jump = jumpTable[h[last] & 0xF];
+		len -= jump;
+		h += jump;
+	}
+	
 	return(-1);
 }
 
