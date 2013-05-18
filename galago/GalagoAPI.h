@@ -94,13 +94,16 @@ public:
 	
 	static Buffer			New(char const* cStr);
 	static Buffer			New(size_t length);
-	static Buffer			New(void* b, size_t length);
+	static Buffer			New(void const* b, size_t length);
 	
 	Buffer					operator +(Buffer const& b) const;
 	Buffer&					operator +=(Buffer const& b);
 	
 	inline bool				operator ==(Buffer const& b) const		{return((b._b == _b) || (b._b && Equals(b._b->data, b._b->length)));}
-	inline bool				operator ==(char const* cStr) const;
+	bool					operator ==(char const* cStr) const;
+	inline bool				operator !=(Buffer const& b) const		{return((b._b != _b) || (!b._b) || !Equals(b._b->data, b._b->length));}
+	inline bool				operator !=(char const* cStr) const		{return(!operator == (cStr));}
+	inline					operator bool(void) const				{return(_b != 0);}
 	
 	unsigned int			ParseUint(int base = 10);
 	signed int				ParseInt(int base = 10);
@@ -265,9 +268,9 @@ public:
 		void			start(int bitRate = 100000UL, Role role = Master);
 		inline void		stop(void)	{start(0);}
 		
-		Task			write(byte address, byte const* s, int length, RepeatedStartSetting repeatedStart = No);
-		inline Task		read(byte address, byte* s, int length, RepeatedStartSetting repeatedStart = No)
-							{return(write(address | 1, s, length, repeatedStart));}
+		Task			write(byte address, Buffer s, RepeatedStartSetting repeatedStart = No);
+		inline Task		read(byte address, Buffer s, RepeatedStartSetting repeatedStart = No)
+							{return(write(address | 1, s, repeatedStart));}
 		
 		void			end(void);
 	};
@@ -406,12 +409,7 @@ public:
 	
 	//synchronously wait for a task to complete. Completion callbacks for other tasks will be called from within this
 	//  method, making it not strictly blocking.
-	typedef enum
-	{
-		InvokeCallbacks,
-		DoNotInvokeCallbacks,
-	} InvokeCallbacksOption;
-	bool			wait(Task t, InvokeCallbacksOption invokeCallbacks = InvokeCallbacks);
+	bool			wait(Task t);
 	
 					System(void);
 	

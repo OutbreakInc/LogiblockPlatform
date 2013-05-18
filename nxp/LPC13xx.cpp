@@ -225,6 +225,11 @@ extern "C" void STARTUP _Sleep(void)
 	//@@exit PMU state
 }
 
+extern "C" void STARTUP _Reset(void)
+{
+	*((unsigned int volatile*)(0xE000ED0C)) = 0x05FA0004;	//invoke a hard reset
+}
+
 extern "C" void STARTUP INTERRUPT ignoreInterrupt(void)
 {
 }

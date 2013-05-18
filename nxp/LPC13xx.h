@@ -1019,6 +1019,89 @@
 	REGISTER	I2CSlaveAddress2Mask =		REGISTER_ADDRESS(0x40000038);
 	REGISTER	I2CSlaveAddress3Mask =		REGISTER_ADDRESS(0x4000003C);
 	
+	//these enums apply to all timers
+		enum TimerInterrupts
+		{
+			TimerInterrupts_Match0Flag		=	(1 << 0),
+			TimerInterrupts_Match1Flag		=	(1 << 1),
+			TimerInterrupts_Match2Flag		=	(1 << 2),
+			TimerInterrupts_Match3Flag		=	(1 << 3),
+			TimerInterrupts_Capture0Flag	=	(1 << 4),
+		};
+		enum TimerControl
+		{
+			TimerControl_Enable		=	(1 << 0),
+			TimerControl_Reset		=	(1 << 1),
+		};
+		enum TimerMatchControl
+		{
+			TimerMatchControl_Match0Interrupt	=	(1 << 0),
+			TimerMatchControl_Match0Reset		=	(1 << 1),
+			TimerMatchControl_Match0Stop		=	(1 << 2),
+
+			TimerMatchControl_Match1Interrupt	=	(1 << 3),
+			TimerMatchControl_Match1Reset		=	(1 << 4),
+			TimerMatchControl_Match1Stop		=	(1 << 5),
+
+			TimerMatchControl_Match2Interrupt	=	(1 << 6),
+			TimerMatchControl_Match2Reset		=	(1 << 7),
+			TimerMatchControl_Match2Stop		=	(1 << 8),
+
+			TimerMatchControl_Match3Interrupt	=	(1 << 9),
+			TimerMatchControl_Match3Reset		=	(1 << 10),
+			TimerMatchControl_Match3Stop		=	(1 << 11),
+		};
+		enum TimerCaptureControl
+		{
+			TimerCaptureControl_CaptureOnRising		=	(1 << 0),
+			TimerCaptureControl_CaptureOnFalling	=	(1 << 1),
+			TimerCaptureControl_InterruptOnCapture	=	(1 << 2),
+		};
+		enum TimerExternalMatch
+		{
+			TimerExternalMatch_Match0State		=	(1 << 0),
+			TimerExternalMatch_Match1State		=	(1 << 1),
+			TimerExternalMatch_Match2State		=	(1 << 2),
+			TimerExternalMatch_Match3State		=	(1 << 3),
+			
+			TimerExternalMatch_Match0DoNothing	=	(0 << 4),
+			TimerExternalMatch_Match0Clear		=	(1 << 4),
+			TimerExternalMatch_Match0Set		=	(2 << 4),
+			TimerExternalMatch_Match0Toggle		=	(3 << 4),
+			
+			TimerExternalMatch_Match1DoNothing	=	(0 << 6),
+			TimerExternalMatch_Match1Clear		=	(1 << 6),
+			TimerExternalMatch_Match1Set		=	(2 << 6),
+			TimerExternalMatch_Match1Toggle		=	(3 << 6),
+			
+			TimerExternalMatch_Match2DoNothing	=	(0 << 8),
+			TimerExternalMatch_Match2Clear		=	(1 << 8),
+			TimerExternalMatch_Match2Set		=	(2 << 8),
+			TimerExternalMatch_Match2Toggle		=	(3 << 8),
+			
+			TimerExternalMatch_Match3DoNothing	=	(0 << 10),
+			TimerExternalMatch_Match3Clear		=	(1 << 10),
+			TimerExternalMatch_Match3Set		=	(2 << 10),
+			TimerExternalMatch_Match3Toggle		=	(3 << 10),
+		};
+		enum TimerCountControl
+		{
+			TimerCountControl_IncrementOnInternalClock		=	(0 << 0),
+			TimerCountControl_IncrementOnRisingCapEdge		=	(1 << 0),
+			TimerCountControl_IncrementOnFallingCapEdge	=	(2 << 0),
+			TimerCountControl_IncrementOnEitherCapEdge		=	(3 << 0),
+			
+			TimerCountControl_SelectCap0					=	(0 << 2),
+			TimerCountControl_SelectCap1					=	(1 << 2),	//not supported
+			TimerCountControl_SelectCap2					=	(2 << 2),	//not supported
+		};
+		enum TimerPWMControl
+		{
+			TimerPWMControl_Match0		=	(1 << 0),
+			TimerPWMControl_Match1		=	(1 << 1),
+			TimerPWMControl_Match2		=	(1 << 2),
+			TimerPWMControl_Match3		=	(1 << 3),
+		};
 	
 	//Timer 0, 16-bit
 	REGISTER	Timer0Interrupts =			REGISTER_ADDRESS(0x4000C000);
@@ -1032,104 +1115,27 @@
 	REGISTER	Timer0Match2 =				REGISTER_ADDRESS(0x4000C020);
 	REGISTER	Timer0Match3 =				REGISTER_ADDRESS(0x4000C024);
 	REGISTER	Timer0CaptureControl =		REGISTER_ADDRESS(0x4000C028);
+	REGISTER	Timer0CaptureValue =		REGISTER_ADDRESS(0x4000C02C);
+	REGISTER	Timer0ExternalMatch =		REGISTER_ADDRESS(0x4000C03C);
+	REGISTER	Timer0CountControl =		REGISTER_ADDRESS(0x4000C070);
+	REGISTER	Timer0PWMControl =			REGISTER_ADDRESS(0x4000C03C);
 	
 	//Timer 1, 16-bit
 	REGISTER	Timer1Interrupts =			REGISTER_ADDRESS(0x40010000);
-		enum Timer1Interrupts
-		{
-			Timer1Interrupts_Match0Flag		=	(1 << 0),
-			Timer1Interrupts_Match1Flag		=	(1 << 1),
-			Timer1Interrupts_Match2Flag		=	(1 << 2),
-			Timer1Interrupts_Match3Flag		=	(1 << 3),
-			Timer1Interrupts_Capture0Flag	=	(1 << 4),
-		};
 	REGISTER	Timer1Control =				REGISTER_ADDRESS(0x40010004);
-		enum Timer1Control
-		{
-			Timer1Control_Enable	=	(1 << 0),
-			Timer1Control_Reset		=	(1 << 1),
-		};
 	REGISTER	Timer1Counter =				REGISTER_ADDRESS(0x40010008);
 	REGISTER	Timer1Prescaler =			REGISTER_ADDRESS(0x4001000C);
 	REGISTER	Timer1PrescaleCounter =		REGISTER_ADDRESS(0x40010010);
 	REGISTER	Timer1MatchControl =		REGISTER_ADDRESS(0x40010014);
-		enum Timer1MatchControl
-		{
-			Timer1MatchControl_Match0Interrupt	=	(1 << 0),
-			Timer1MatchControl_Match0Reset		=	(1 << 1),
-			Timer1MatchControl_Match0Stop		=	(1 << 2),
-
-			Timer1MatchControl_Match1Interrupt	=	(1 << 3),
-			Timer1MatchControl_Match1Reset		=	(1 << 4),
-			Timer1MatchControl_Match1Stop		=	(1 << 5),
-
-			Timer1MatchControl_Match2Interrupt	=	(1 << 6),
-			Timer1MatchControl_Match2Reset		=	(1 << 7),
-			Timer1MatchControl_Match2Stop		=	(1 << 8),
-
-			Timer1MatchControl_Match3Interrupt	=	(1 << 9),
-			Timer1MatchControl_Match3Reset		=	(1 << 10),
-			Timer1MatchControl_Match3Stop		=	(1 << 11),
-		};
 	REGISTER	Timer1Match0 =				REGISTER_ADDRESS(0x40010018);
 	REGISTER	Timer1Match1 =				REGISTER_ADDRESS(0x4001001C);
 	REGISTER	Timer1Match2 =				REGISTER_ADDRESS(0x40010020);
 	REGISTER	Timer1Match3 =				REGISTER_ADDRESS(0x40010024);
 	REGISTER	Timer1CaptureControl =		REGISTER_ADDRESS(0x40010028);
-		enum Timer1CaptureControl
-		{
-			Timer1CaptureControl_CaptureOnRising	=	(1 << 0),
-			Timer1CaptureControl_CaptureOnFalling	=	(1 << 1),
-			Timer1CaptureControl_InterruptOnCapture	=	(1 << 2),
-		};
 	REGISTER	Timer1CaptureValue =		REGISTER_ADDRESS(0x4001002C);
 	REGISTER	Timer1ExternalMatch =		REGISTER_ADDRESS(0x4001003C);
-		enum Timer1ExternalMatch
-		{
-			Timer1ExternalMatch_Match0State		=	(1 << 0),
-			Timer1ExternalMatch_Match1State		=	(1 << 1),
-			Timer1ExternalMatch_Match2State		=	(1 << 2),
-			Timer1ExternalMatch_Match3State		=	(1 << 3),
-			
-			Timer1ExternalMatch_Match0DoNothing	=	(0 << 4),
-			Timer1ExternalMatch_Match0Clear		=	(1 << 4),
-			Timer1ExternalMatch_Match0Set		=	(2 << 4),
-			Timer1ExternalMatch_Match0Toggle	=	(3 << 4),
-			
-			Timer1ExternalMatch_Match0DoNothing	=	(0 << 6),
-			Timer1ExternalMatch_Match0Clear		=	(1 << 6),
-			Timer1ExternalMatch_Match0Set		=	(2 << 6),
-			Timer1ExternalMatch_Match0Toggle	=	(3 << 6),
-			
-			Timer1ExternalMatch_Match0DoNothing	=	(0 << 8),
-			Timer1ExternalMatch_Match0Clear		=	(1 << 8),
-			Timer1ExternalMatch_Match0Set		=	(2 << 8),
-			Timer1ExternalMatch_Match0Toggle	=	(3 << 8),
-			
-			Timer1ExternalMatch_Match0DoNothing	=	(0 << 10),
-			Timer1ExternalMatch_Match0Clear		=	(1 << 10),
-			Timer1ExternalMatch_Match0Set		=	(2 << 10),
-			Timer1ExternalMatch_Match0Toggle	=	(3 << 10),
-		};
 	REGISTER	Timer1CountControl =		REGISTER_ADDRESS(0x40010070);
-		enum Timer1CountControl
-		{
-			Timer1CountControl_IncrementOnInternalClock		=	(0 << 0),
-			Timer1CountControl_IncrementOnRisingCapEdge		=	(1 << 0),
-			Timer1CountControl_IncrementOnFallingCapEdge	=	(2 << 0),
-			Timer1CountControl_IncrementOnEitherCapEdge		=	(3 << 0),
-			
-			Timer1CountControl_SelectCap0					=	(0 << 2),
-			Timer1CountControl_SelectCap1					=	(1 << 2),	//not supported
-			Timer1CountControl_SelectCap2					=	(2 << 2),	//not supported
-		};
 	REGISTER	Timer1PWMControl =			REGISTER_ADDRESS(0x4001003C);
-		enum Timer1PWMControl
-		{
-			Timer1PWMControl_Match1		=	(1 << 0),
-			Timer1PWMControl_Match2		=	(1 << 1),
-			Timer1PWMControl_Match3		=	(1 << 2),
-		};
 	
 	//Timer 2, 32-bit
 	REGISTER	Timer2Interrupts =			REGISTER_ADDRESS(0x40014000);
@@ -1143,6 +1149,10 @@
 	REGISTER	Timer2Match2 =				REGISTER_ADDRESS(0x40014020);
 	REGISTER	Timer2Match3 =				REGISTER_ADDRESS(0x40014024);
 	REGISTER	Timer2CaptureControl =		REGISTER_ADDRESS(0x40014028);
+	REGISTER	Timer2CaptureValue =		REGISTER_ADDRESS(0x4001402C);
+	REGISTER	Timer2ExternalMatch =		REGISTER_ADDRESS(0x4001403C);
+	REGISTER	Timer2CountControl =		REGISTER_ADDRESS(0x40014070);
+	REGISTER	Timer2PWMControl =			REGISTER_ADDRESS(0x4001403C);
 	
 	//Timer 3, 32-bit
 	REGISTER	Timer3Interrupts =			REGISTER_ADDRESS(0x40018000);
@@ -1156,6 +1166,10 @@
 	REGISTER	Timer3Match2 =				REGISTER_ADDRESS(0x40018020);
 	REGISTER	Timer3Match3 =				REGISTER_ADDRESS(0x40018024);
 	REGISTER	Timer3CaptureControl =		REGISTER_ADDRESS(0x40018028);
+	REGISTER	Timer3CaptureValue =		REGISTER_ADDRESS(0x4001802C);
+	REGISTER	Timer3ExternalMatch =		REGISTER_ADDRESS(0x4001803C);
+	REGISTER	Timer3CountControl =		REGISTER_ADDRESS(0x40018070);
+	REGISTER	Timer3PWMControl =			REGISTER_ADDRESS(0x4001803C);
 	
 	
 	//Watchdog
@@ -1426,6 +1440,7 @@
 	#endif //__cplusplus
 	
 	void		_Sleep(void);
+	void		_Reset(void);
 	
 	void		IRQ_WakeupPIO0_0(void);
 	void		IRQ_WakeupPIO0_1(void);

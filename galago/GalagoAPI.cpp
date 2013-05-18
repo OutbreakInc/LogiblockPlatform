@@ -234,7 +234,7 @@ Buffer					Buffer::New(size_t length)
 	return(Buffer(ib));
 }
 
-Buffer					Buffer::New(void* d, size_t length)
+Buffer					Buffer::New(void const* d, size_t length)
 {
 	if((d == 0) || (length == 0))	return(Buffer());
 	InternalBuffer* ib = new(length) InternalBuffer(length);
@@ -419,6 +419,7 @@ ssize_t					Buffer::IndexOf(Buffer b, size_t offset)
 	if(offset > _b->length)
 		return(-1);
 	
+	//@@memmem requires too much memory for its jump-table. Let's use a lighter (but slower) approach.
 	//void const* point = memmem(haystack->data + offset, haystack->length - offset, needle->data, needle->length);
 	
 	//return((point != 0)? ((unsigned char*)point - (unsigned char*)haystack->data) : -1);
@@ -456,15 +457,6 @@ struct IOCore
 		{}
 	};
 	
-	struct ADCTask: public TaskQueueItem
-	{
-		int				channel;
-		
-						ADCTask(int chan):
-							channel(chan)
-		{}
-	};
-	
 	struct WriteTask: public TaskQueueItem
 	{
 		unsigned short	idx;
@@ -479,8 +471,7 @@ struct IOCore
 							idx(0),
 							len(l)
 		{
-			for(int i = 0; i < l; i++)
-				data[i] = *bytes++;
+			memcpy(data, bytes, l);
 		}
 	};
 	
@@ -511,8 +502,7 @@ struct IOCore
 							is16Bit(false),
 							bytesReadBack(readBack)
 		{
-			for(int i = 0; i < l; i++)
-				data[i] = *bytes++;
+			memcpy(data, bytes, l);
 		}
 						SPITask(unsigned short const* halves, int l, Buffer readBack):
 							len(l),
@@ -526,27 +516,37 @@ struct IOCore
 		}
 	};
 	
-	TimerTask* volatile		timerCurrentTask;
+	struct I2CTask: public TaskQueueItem
+	{
+		unsigned short	len;
+		unsigned short	idx;
+		Buffer			bytesReadBack;
+		byte			data[1];
+		
+						I2CTask(int l):
+							len(l),
+							idx(0)
+		{
+		}
+	};
 	
-	ADCTask* volatile		adcCurrentTask;
+	TimerTask* volatile		timerCurrentTask;
 	
 	CircularBuffer* volatile	uartReceiveBuffer;
 	Task					uartRecvTask;
 	WriteTask* volatile		uartCurrentWriteTask;
 	
-	WriteTask* volatile		i2cCurrentTask;
+	I2CTask* volatile		i2cCurrentTask;
 	
 	SPITask* volatile		spiCurrentTask;
 	
 							IOCore(void):
 								timerCurrentTask(0),
-								adcCurrentTask(0),
 								uartReceiveBuffer(0),
 								uartCurrentWriteTask(0),
 								i2cCurrentTask(0),
 								spiCurrentTask(0)
 	{
-		//uartReceiveBuffer = new CircularBuffer(128);	//@@defer until UART is started, free when stopped
 	}
 	
 	static void		queueItem(TaskQueueItem** head, TaskQueueItem* item)
@@ -554,6 +554,19 @@ struct IOCore
 		while(*head != 0)
 			head = &((*head)->next);
 		*head = item;
+	}
+	
+	static void		flushQueue(TaskQueueItem** head)
+	{
+		IOCore::TaskQueueItem* task = *head;
+		*head = 0;
+		while(task != 0)
+		{
+			IOCore::TaskQueueItem* t = task;
+			task = task->next;
+			system.completeTask(t->task, false);	//cancel the task
+			delete t;
+		}
 	}
 };
 
@@ -792,8 +805,7 @@ void*			System::alloc(size_t size)
 		}
 		m += bs;
 	}
-	//return(0);	//@@throw
-	__asm volatile("bkpt 7"::);	//@@need constants: this is OOM
+	__asm volatile("bkpt 7"::);	//@@ Out-of-memory exception
 }
 
 //static
@@ -873,13 +885,16 @@ bool			System::completeTask(Task t, bool success)
 	
 	//@@defer until not in the NVIC stack any longer, then call user callbacks
 	InternalTaskCallback* callbacks = t._t->_c;
-	int numCallbacks = t._t->_flags & 0x3FFF;
-	t._t->_flags &= ~0x3FFF;
-	for(int i = 0; i < numCallbacks; i++)
-		callbacks[i].f(callbacks[i].c, t, success);
-	
-	delete[] callbacks;
-	t._t->_c = 0;
+	if(callbacks != 0)
+	{
+		int numCallbacks = t._t->_flags & 0x3FFF;
+		t._t->_flags &= ~0x3FFF;
+		for(int i = 0; i < numCallbacks; i++)
+			callbacks[i].f(callbacks[i].c, t, success);
+		
+		delete[] callbacks;
+		t._t->_c = 0;
+	}
 	
 	return(true);
 }
@@ -925,20 +940,23 @@ bool			System::when(Task t, void (*completion)(void* context, Task, bool success
 
 void			System::sleep(void) const
 {
-	//@@interrupt arming stuff
+	//@@deep-sleep and interrupt arming as appropriate
 	_Sleep();
-	//@@disarming/re-arming stuff
+	//@@deep-sleep and interrupt disarming
 }
 
-bool			System::wait(Task t, System::InvokeCallbacksOption invokeCallbacks)
+bool			System::wait(Task t)
 {
 	if(t._t == 0)	return(false);
 	
-	//a mini event-loop!
-	while(t._t->_flags < 0x4000)	//while not resolved
-		sleep();	//service interrupts and the like	//@@???
+	InternalTask volatile* task = t._t;
 	
-	return(t._t->_flags < 0x8000);
+	//a mini event-loop!
+	unsigned short flags;
+	while((flags = task->_flags) < 0x4000)	//while not resolved
+		sleep();	//service interrupts and the like
+	
+	return(flags < 0x8000);
 }
 
 static void		System_wakeFromSpan(unsigned int point)
@@ -1133,48 +1151,16 @@ static unsigned char const IO_ioConfigForPin[] =
 	
 	//@@find a way to defer this via refcount with debouncing to avoid unnecessary power transitions and warm-up
 	*PowerDownControl &= ~PowerDownControl_ADC;	//power on the ADC
-	//*ADCInterrupt = ADCInterrupt_InterruptOnAny;
-	*ADCControl = (3 << 8) | ADCControl_10BitSample_11Clocks;	//set ADC divider to yield a clock rate under 4.5MHz (12MHz / 4.5MHz)
+	
+	//set ADC divider to yield a clock rate under 4.5MHz (12MHz / 4.5MHz)
+	*ADCControl = (3 << 8) | ADCControl_10BitSample_11Clocks;
 	
 	Pin* p = &p0;
 	for(int i = 0; i < 26; i++)
 		*p++ = Pin(kIOPinChart[i]);
 	
 	led = 1;	//!LED deasserted (unlit) initially
-	
-	//enable interrupts we need for IO: I2C, the Timers, SPI0, UART and the ADC.
-	//@@temp *InterruptEnableSet1 = Interrupt1_I2C
-	//@@temp 	| Interrupt1_Timer0 | Interrupt1_Timer1 | Interrupt1_Timer2 | Interrupt1_Timer3
-	//@@temp 	| Interrupt1_SPI0 | Interrupt1_UART | Interrupt1_ADC;
 }
-
-/*
-INTERRUPT void		IRQ_ADC(void)
-{
-	//deselect the channel and reset the run mode (this has the effect of stopping the ADC
-	//  if it isn't restarted for the next conversion.
-	*ADCControl &= ~(ADCControl_ChannelSelectBitmask | ADCControl_StartStopMask);
-	
-	//for performance, flexibility and jam-resistance, always start the next task before completing the current one.
-	IOCore::ADCTask* last = IOCore.adcCurrentTask;
-	IOCore.adcCurrentTask = (IOCore::ADCTask*)IOCore.adcCurrentTask->next;
-	
-	//start a new conversion
-	if(IOCore.adcCurrentTask != 0)
-		*ADCControl |= (ADCControl_StartNow | (1 << IOCore.adcCurrentTask->channel));
-	else
-	{
-		//shut down the ADC - deselect the clock
-		*ClockControl &= ~ClockControl_ADC;
-		*InterruptEnableClear1 = Interrupt1_ADC;	//disable interrupt
-		//*PowerDownControl |= PowerDownControl_ADC;	//@@probably overkill
-	}
-	
-	//complete task
-	system.completeTask(last->task);
-	delete last;
-}
-*/
 
 int				IO::Pin::read(void)
 {
@@ -1184,44 +1170,6 @@ void			IO::Pin::write(int value)
 {
 	PIN_GPIO_DATA_PORT(PIN_IO_PORT(v))[1 << PIN_IO_PIN_NUM(v)] = (value ? (~0) : 0);
 }
-
-/*
-Task			IO::Pin::readAnalog(void)
-{
-	*ClockControl |= ClockControl_ADC;	//enable the ADC clock if not already active
-	
-	int adcChannel = 0;
-	switch(PIN_ID(v))
-	{
-	case PIN_A0:	adcChannel = 0;	break;
-	case PIN_A1:	adcChannel = 1;	break;
-	case PIN_A2:	adcChannel = 2;	break;
-	case PIN_A3:	adcChannel = 3;	break;
-	case PIN_A5:	adcChannel = 5;	break;
-	case PIN_A7:	adcChannel = 7;	break;
-	default:
-		return(Task());	//no analog on this pin
-	}
-	
-	Task task = system.createTask();
-	IOCore::ADCTask* adcTask = new IOCore::ADCTask(adcChannel);
-	adcTask->task = task;
-	
-	InterruptsDisable();
-		
-		IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.adcCurrentTask, adcTask);
-		
-		if(IOCore.adcCurrentTask == adcTask);
-		{
-			*InterruptEnableSet1 = Interrupt1_ADC;
-			*ADCControl |= (ADCControl_StartNow | (1 << adcChannel));
-		}
-		
-	InterruptsEnable();
-	
-	return(task);
-}
-*/
 
 unsigned int	IO::Pin::readAnalog(void)
 {
@@ -1275,8 +1223,6 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 		//on Galago, the default for any pin is as a GPIO input except the LED, which defaults to an output, initially deasserted
 	if(mode == IO::Pin::Default)
 		mode = (id == PIN_LED)? IO::Pin::DigitalOutput : IO::Pin::DigitalInput;
-		//mode = IO::Pin::DigitalInput;
-		//mode = (id == PIN_P0)? IO::Pin::Reset : IO::Pin::DigitalInput;
 	
 	switch(mode)
 	{
@@ -1358,12 +1304,11 @@ void			IO::SPI::start(int bitRate, Mode mode, Role role)
 		*ClockControl |= ClockControl_SPI0;	//enable SPI0 clock
 		*SPI0ClockPrescaler = 2;	//minimum 2
 
-		//*SPI0ClockDivider = (system.getCoreFrequency() >> 1) / bitRate;
 		*SPI0ClockDivider = 1;
 		
 		*PeripheralnReset |= PeripheralnReset_SPI0;	//deassert reset
 		
-		*SPI0Control0 = mode;	//SPI0Control0_8BitTransfer | SPI0Control0_FrameFormat_SPI | SPI0Control0_SPIMode0;
+		*SPI0Control0 = mode;
 		*SPI0Control1 = SPI0Control1_Enable;
 		
 		io.sck.setMode(IO::Pin::SPI);
@@ -1379,22 +1324,16 @@ void			IO::SPI::start(int bitRate, Mode mode, Role role)
 		*InterruptEnableClear1 = Interrupt1_SPI0;
 		*SPI0InterruptClear = 0x0F;	//disable interrupts
 		
-		//empty the queue
-		InterruptsDisable();
-		IOCore::TaskQueueItem* task = IOCore.spiCurrentTask;
-		while(task != 0)
-		{
-			IOCore::TaskQueueItem* t = task;
-			task = task->next;
-			system.completeTask(t->task, false);	//cancel the task
-			delete t;
-		}
-		IOCore.spiCurrentTask = 0;
-		InterruptsEnable();
-		
+		//set pin modes back
 		io.sck.setMode(IO::Pin::Default);
 		io.miso.setMode(IO::Pin::Default);
 		io.mosi.setMode(IO::Pin::Default);
+		
+		InterruptsDisable();
+			
+			IOCore.flushQueue((IOCore::TaskQueueItem**)&IOCore.spiCurrentTask);
+			
+		InterruptsEnable();
 	}
 }
 
@@ -1479,7 +1418,7 @@ INTERRUPT void		IRQ_SPI0(void)
 		
 		if(currentTask->readIdx == currentTask->len)
 		{
-			if(!(currentTask->bytesReadBack == Buffer()))
+			if(currentTask->bytesReadBack)
 				memcpy(currentTask->bytesReadBack.bytes(), currentTask->data, (currentTask->is16Bit)? (currentTask->len * 2) : currentTask->len);
 			
 			IOCore.spiCurrentTask = (IOCore::SPITask*)currentTask->next;
@@ -1524,26 +1463,20 @@ void		IO::UART::start(int baudRate, Mode mode)
 		
 		*ClockControl &= ~ClockControl_UART;
 		
-		InterruptsDisable();
-		delete IOCore.uartReceiveBuffer;
-		IOCore.uartReceiveBuffer = 0;
-		system.completeTask(IOCore.uartRecvTask, false);
-		
-		//empty the queue
-		IOCore::TaskQueueItem* task = IOCore.uartCurrentWriteTask;
-		while(task != 0)
-		{
-			IOCore::TaskQueueItem* t = task;
-			task = task->next;
-			system.completeTask(t->task, false);	//cancel the task
-			delete t;
-		}
-		IOCore.uartCurrentWriteTask = 0;
-		InterruptsEnable();
-		
 		//@@ It remains a point of debate whether peripherals should change pin state...
 		io.txd.setMode(IO::Pin::Default);
 		io.rxd.setMode(IO::Pin::Default);
+		
+		InterruptsDisable();
+			
+			delete IOCore.uartReceiveBuffer;
+			IOCore.uartReceiveBuffer = 0;
+			system.completeTask(IOCore.uartRecvTask, false);
+			
+			//empty the queue
+			IOCore.flushQueue((IOCore::TaskQueueItem**)&IOCore.uartCurrentWriteTask);
+			
+		InterruptsEnable();
 	}
 }
 void		IO::UART::startWithExplicitRatio(int divider, int fracN, int fracD, Mode mode)
@@ -1566,8 +1499,6 @@ void		IO::UART::startWithExplicitRatio(int divider, int fracN, int fracD, Mode m
 	//set up UART interrupt
 	*UARTInterrupts = (UARTInterrupts_ReceivedData | UARTInterrupts_TxBufferEmpty | UARTInterrupts_RxLineStatus);	//enable conditions for the UART to interrupt
 	*InterruptEnableSet1 = Interrupt1_UART;	//enable UART interrupts in the interrupt controller
-	
-	//IRQ_UART();		//IRQ_UART does some housekeeping required for to receive the first byte
 }
 
 int			IO::UART::bytesAvailable(void) const
@@ -1663,20 +1594,11 @@ INTERRUPT void		IRQ_UART(void)
 int		IO::UART::read(byte* s, int length)
 {
 	//read bytes from the RX buffer.  Synchronous and nonblocking
-	
 	if(IOCore.uartReceiveBuffer == 0)
 		return(0);
 	
 	return(IOCore.uartReceiveBuffer->read(s, length));
 }
-
-//Character,
-//UnsignedByte,
-//SignedByte,
-//UnsignedInteger16,
-//SignedInteger16,
-//UnsignedInteger32,
-//SignedInteger32
 
 Task		IO::UART::write(unsigned int w, IO::UART::Format format)
 {
@@ -1722,10 +1644,36 @@ Task		IO::UART::write(byte const* s, int length)
 ////////////////////////////////////////////////////////////////
 // I2C
 
+bool				IO_I2C_repeatedStart(IOCore::I2CTask* currentTask)
+{
+	return(		(currentTask->next != 0)
+				&& ((((IOCore::I2CTask*)(currentTask->next))->data[0] | 1) == (currentTask->data[0] | 1))	//same slave?
+			);
+}
+
+void				IO_I2C_completePacket(IOCore::I2CTask* currentTask, bool success)
+{
+	//if read, copy data to bytesReadBack
+	if(success && (currentTask->data[0] & 1) && currentTask->bytesReadBack)
+	{
+		int l = currentTask->len - 1;
+		if(currentTask->bytesReadBack.length() < l)
+			l = currentTask->bytesReadBack.length();
+		memcpy(currentTask->bytesReadBack.bytes(), currentTask->data + 1, l);
+	}
+	
+	IOCore.i2cCurrentTask = (IOCore::I2CTask*)currentTask->next;
+	system.completeTask(currentTask->task, success);
+	delete currentTask;
+	
+	if(IOCore.i2cCurrentTask != 0)
+		*I2CControlSet = I2CControlSet_StartCondition;
+}
+
 INTERRUPT void		IRQ_I2C(void)
 {
 	int status = *I2CStatus;
-	IOCore::WriteTask* currentTask = IOCore.i2cCurrentTask;
+	IOCore::I2CTask* currentTask = IOCore.i2cCurrentTask;
 	switch(status)
 	{
 	case 0x08:	//start bit sent
@@ -1734,60 +1682,52 @@ INTERRUPT void		IRQ_I2C(void)
 		*I2CControlClear = I2CControlSet_StartCondition;
 		break;
 		
-	case 0x18:	//write address ACKed, ready to write
-		*I2CData = currentTask->data[0];
-		break;
-		
 	case 0x20:	//write address NACKed, stop
-		*I2CControlSet = I2CControlSet_StopCondition;
-		
-		//@@abort packet
-		break;
-		
 	case 0x48:	//read address NACKed, stop
 		*I2CControlSet = I2CControlSet_StopCondition;
-		
-		//@@abort packet
+		IO_I2C_completePacket(currentTask, false);
 		break;
 		
 	case 0x40:	//read address ACKed, ready to read
-		if(currentTask->len == 1)	*I2CControlClear = I2CControlSet_Ack;
-		
+		if(currentTask->len > 1)	*I2CControlSet = I2CControlSet_Ack;
 		break;
 	
+	case 0x18:	//write address ACKed, ready to write
 	case 0x28:	//byte sent, ACK received
-		if(currentTask->idx < currentTask->len)
-			*I2CData = currentTask->data[currentTask->idx++];
-		else
+		if(++currentTask->idx < currentTask->len)
 		{
-			if(		(currentTask->next != 0)
-					&& (((IOCore::WriteTask*)(currentTask->next))->data[0] == currentTask->data[0])	//same slave?
-				)
-				*I2CControlSet = I2CControlSet_StartCondition;
-			else
-				*I2CControlSet = I2CControlSet_StopCondition;
+			*I2CData = currentTask->data[currentTask->idx];
+			break;
 		}
+		//(intentional flow to the following case)
+		
+	case 0x58:	//byte received, NACK sent
+		if(IO_I2C_repeatedStart(currentTask))	*I2CControlSet = I2CControlSet_StartCondition;
+		else									*I2CControlSet = I2CControlSet_StopCondition;
+		IO_I2C_completePacket(currentTask, true);
 		break;
 		
 	case 0x30:	//byte sent, NACK received
 		*I2CControlClear = I2CControlSet_StopCondition;
-		//@@abort
+		IO_I2C_completePacket(currentTask, false);
 		break;
 		
 	case 0x50:	//byte received, ACK sent
-		currentTask->data[currentTask->idx++] = *I2CData;
+		currentTask->data[++currentTask->idx] = *I2CData;
 		
-		if(currentTask->idx < currentTask->len)	*I2CControlSet = I2CControlSet_Ack;
-		else										*I2CControlClear = I2CControlSet_Ack;
+		// +2 accounts for the address byte and the fact that we have to decide the response one byte ahead
+		if((currentTask->idx + 2) < currentTask->len)	*I2CControlSet = I2CControlSet_Ack;
+		else											*I2CControlClear = I2CControlSet_Ack;
 		
-		break;
-		
-	case 0x58:	//byte received, NACK sent
-		*I2CControlSet = I2CControlSet_StopCondition;
 		break;
 	
+	default:
+	case 0x00:
+	case 0xF8:
+		//protocol errors!
+		
 	case 0x38:	//arbitration loss, abort
-		//boo :-(
+		IO_I2C_completePacket(currentTask, false);
 		break;
 	}
 	
@@ -1796,7 +1736,6 @@ INTERRUPT void		IRQ_I2C(void)
 
 void	IO::I2C::start(int bitRate, IO::I2C::Role role)
 {
-	*I2CControlClear = 0x6C;	//turn off (clear all bits)
 	*PeripheralnReset &= ~PeripheralnReset_I2C;	//assert reset
 	
 	if(bitRate > 0)
@@ -1804,31 +1743,64 @@ void	IO::I2C::start(int bitRate, IO::I2C::Role role)
 		*ClockControl |= ClockControl_I2C;
 		*PeripheralnReset |= PeripheralnReset_I2C;	//deassert reset
 		
+		io.scl.setMode(IO::Pin::I2C);
+		io.sda.setMode(IO::Pin::I2C);
+		
+		*I2CControlClear = I2CControlSet_Ack | I2CControlSet_Interrupt
+							| I2CControlSet_StartCondition | I2CControlSet_EnableI2C;
+		
 		unsigned int bitHalfPeriod = (system.getCoreFrequency() / bitRate) >> 1;
 		//@@depending on the time-constant of the bus (1 / (pull-up resistance * capacitance)),
 		//  the low-time should be smaller and the high-time should be higher
 		*I2CClockHighTime = bitHalfPeriod;
 		*I2CClockLowTime = bitHalfPeriod;
 		
+		//enable interrupt before enabling I2C state machine:
+		*InterruptEnableSet1 = Interrupt1_I2C;
 		*I2CControlSet = I2CControlSet_EnableI2C;
-		//@@temp *InterruptEnableSet1 = Interrupt1_I2C;
 	}
 	else
 	{
-		//shut down I2C clock
-		*ClockControl &= ~ClockControl_I2C;
-		*InterruptEnableClear1 = Interrupt1_I2C;
+		io.scl.setMode(IO::Pin::Default);
+		io.sda.setMode(IO::Pin::Default);
+		
+		InterruptsDisable();
+			
+			*I2CControlClear = I2CControlSet_Ack | I2CControlSet_Interrupt
+								| I2CControlSet_StartCondition | I2CControlSet_EnableI2C;
+			
+			//shut down I2C clock
+			*ClockControl &= ~ClockControl_I2C;
+			*InterruptEnableClear1 = Interrupt1_I2C;
+			
+			//empty the queue
+			IOCore.flushQueue((IOCore::TaskQueueItem**)&IOCore.i2cCurrentTask);
+			
+		InterruptsEnable();
 	}
 }
 
-Task	IO::I2C::write(byte address, byte const* s, int length, IO::I2C::RepeatedStartSetting repeatedStart)
+Task	IO::I2C::write(byte address, Buffer s, IO::I2C::RepeatedStartSetting repeatedStart)
 {
 	Task task = system.createTask();
-	IOCore::WriteTask* writeTask = new(length) IOCore::WriteTask(s, length);
-	writeTask->task = task;
+	IOCore::I2CTask* i2cTask = new(1 + s.length()) IOCore::I2CTask(1 + s.length());
+	i2cTask->data[0] = address;
+	
+	//if reading, retain Buffer 's'; else if writing, copy Buffer 's' to the task's data property
+	if(address & 1)
+		i2cTask->bytesReadBack = s;
+	else
+		memcpy(i2cTask->data + 1, s.bytes(), s.length());
+	
+	i2cTask->task = task;
 	
 	InterruptsDisable();
-		IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.i2cCurrentTask, writeTask);
+		bool mustStart = (IOCore.i2cCurrentTask == 0);
+		IOCore.queueItem((IOCore::TaskQueueItem**)&IOCore.i2cCurrentTask, i2cTask);
+		
+		if(mustStart)
+			*I2CControlSet = I2CControlSet_StartCondition;
+		
 	InterruptsEnable();
 	
 	return(task);
