@@ -480,6 +480,8 @@ void					Buffer::release(InternalBuffer* b) //static
 ////////////////////////////////////////////////////////////////
 // IOCore
 
+void	System_onSysTickInterruptStub(void);
+
 struct IOCore
 {
 	struct TaskQueueItem
@@ -573,22 +575,31 @@ struct IOCore
 		}
 	};
 	
-	TimerTask* volatile		timerCurrentTask;
+	void						(*irqSystick)(void);
+	void						(*irqUART)(void);
+	void						(*irqSPI)(void);
+	void						(*irqI2C)(void);
+	
+	TimerTask* volatile			timerCurrentTask;
 	
 	CircularBuffer* volatile	uartReceiveBuffer;
-	Task					uartRecvTask;
-	WriteTask* volatile		uartCurrentWriteTask;
+	Task						uartRecvTask;
+	WriteTask* volatile			uartCurrentWriteTask;
 	
-	I2CTask* volatile		i2cCurrentTask;
+	I2CTask* volatile			i2cCurrentTask;
 	
-	SPITask* volatile		spiCurrentTask;
+	SPITask* volatile			spiCurrentTask;
 	
-							IOCore(void):
-								timerCurrentTask(0),
-								uartReceiveBuffer(0),
-								uartCurrentWriteTask(0),
-								i2cCurrentTask(0),
-								spiCurrentTask(0)
+								IOCore(void):
+									irqSystick(System_onSysTickInterruptStub),
+									irqUART(0),
+									irqSPI(0),
+									irqI2C(0),
+									timerCurrentTask(0),
+									uartReceiveBuffer(0),
+									uartCurrentWriteTask(0),
+									i2cCurrentTask(0),
+									spiCurrentTask(0)
 	{
 	}
 	
@@ -1021,6 +1032,8 @@ static void		System_wakeFromSpan(unsigned int point)
 	*SystickControl = newSpan? (SystickControl_Enable | SystickControl_InterruptEnabled) : 0;
 }
 
+void	System_onSysTickInterrupt(void);
+
 Task			System::delay(int milliseconds)
 {
 	//convert to ticks
@@ -1045,6 +1058,8 @@ Task			System::delay(int milliseconds)
 		}
 		*p = timer;
 		
+		IOCore.irqSystick = System_onSysTickInterrupt;
+		
 		System_wakeFromSpan(*SystickValue);
 		
 	InterruptsEnable();
@@ -1052,9 +1067,11 @@ Task			System::delay(int milliseconds)
 	return(task);
 }
 
-//tickrate is 400kHz
-extern "C"
-INTERRUPT void		_InternalIRQ_SysTick(void)
+void	System_onSysTickInterruptStub(void)
+{
+}
+
+void	System_onSysTickInterrupt(void)
 {
 	System_wakeFromSpan(0);	//defeat SysTick's auto-reloading by forcing it to zero
 	
@@ -1074,6 +1091,14 @@ INTERRUPT void		_InternalIRQ_SysTick(void)
 		else
 			timer = (IOCore::TimerTask*)timer->next;
 	}
+}
+
+//tickrate is 400kHz
+extern "C"
+INTERRUPT void		_InternalIRQ_SysTick(void)
+{
+	if(IOCore.irqSystick)
+		IOCore.irqSystick();
 }
 
 
@@ -1338,6 +1363,8 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 ////////////////////////////////////////////////////////////////
 //
 
+void	IO_onSPIInterrupt(void);
+
 void			IO::SPI::start(int bitRate, Mode mode, Role role)
 {
 	*PeripheralnReset &= ~PeripheralnReset_SPI0;	//assert reset
@@ -1357,6 +1384,8 @@ void			IO::SPI::start(int bitRate, Mode mode, Role role)
 		io.sck.setMode(IO::Pin::SPI);
 		io.miso.setMode(IO::Pin::SPI);
 		io.mosi.setMode(IO::Pin::SPI);
+		
+		IOCore.irqSPI = IO_onSPIInterrupt;
 		
 		*InterruptEnableSet1 = Interrupt1_SPI0;
 	}
@@ -1437,7 +1466,7 @@ Task			IO::SPI::write(unsigned short const* s, int length, Buffer bytesReadBack)
 	return(task);
 }
 
-INTERRUPT void		IRQ_SPI0(void)
+void	IO_onSPIInterrupt(void)
 {
 	IOCore::SPITask* currentTask;
 	
@@ -1477,8 +1506,15 @@ INTERRUPT void		IRQ_SPI0(void)
 	*SPI0InterruptEnable &= ~SPI0Interrupt_TransmitFIFOHalfEmpty;
 }
 
+INTERRUPT void		IRQ_SPI0(void)
+{
+	IOCore.irqSPI();
+}
+
 ////////////////////////////////////////////////////////////////
 //
+
+void	IO_onUARTInterrupt(void);
 
 void		IO::UART::start(int baudRate, Mode mode)
 {
@@ -1539,6 +1575,8 @@ void		IO::UART::startWithExplicitRatio(int divider, int fracN, int fracD, Mode m
 	
 	(void)*UARTLineStatus;	//clear status
 	
+	IOCore.irqUART = IO_onUARTInterrupt;
+	
 	//set up UART interrupt
 	*UARTInterrupts = (UARTInterrupts_ReceivedData | UARTInterrupts_TxBufferEmpty | UARTInterrupts_RxLineStatus);	//enable conditions for the UART to interrupt
 	*InterruptEnableSet1 = Interrupt1_UART;	//enable UART interrupts in the interrupt controller
@@ -1585,7 +1623,7 @@ void IO_UART_startTransmission(void)
 	*UARTInterrupts &= ~UARTInterrupts_TxBufferEmpty;	//stop being notified on TX ready
 }
 
-INTERRUPT void		IRQ_UART(void)
+void	IO_onUARTInterrupt(void)
 {
 	bool received = false;
 	
@@ -1632,6 +1670,11 @@ INTERRUPT void		IRQ_UART(void)
 		system.completeTask(IOCore.uartRecvTask);
 		IOCore.uartRecvTask = Task();
 	}
+}
+
+INTERRUPT void		IRQ_UART(void)
+{
+	IOCore.irqUART();
 }
 
 int		IO::UART::read(byte* s, int length)
@@ -1713,7 +1756,7 @@ void				IO_I2C_completePacket(IOCore::I2CTask* currentTask, bool success)
 		*I2CControlSet = I2CControlSet_StartCondition;
 }
 
-INTERRUPT void		IRQ_I2C(void)
+void	IO_onI2CInterrupt(void)
 {
 	int status = *I2CStatus;
 	IOCore::I2CTask* currentTask = IOCore.i2cCurrentTask;
@@ -1777,6 +1820,11 @@ INTERRUPT void		IRQ_I2C(void)
 	*I2CControlClear = I2CControlSet_Interrupt;
 }
 
+INTERRUPT void		IRQ_I2C(void)
+{
+	IOCore.irqI2C();
+}
+
 void	IO::I2C::start(int bitRate, IO::I2C::Role role)
 {
 	*PeripheralnReset &= ~PeripheralnReset_I2C;	//assert reset
@@ -1797,6 +1845,8 @@ void	IO::I2C::start(int bitRate, IO::I2C::Role role)
 		//  the low-time should be smaller and the high-time should be higher
 		*I2CClockHighTime = bitHalfPeriod;
 		*I2CClockLowTime = bitHalfPeriod;
+		
+		IOCore.irqI2C = IO_onI2CInterrupt;
 		
 		//enable interrupt before enabling I2C state machine:
 		*InterruptEnableSet1 = Interrupt1_I2C;
