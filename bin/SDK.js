@@ -133,7 +133,8 @@ Toolchain.prototype =
 			if(basesTable[source.base])	filePath.push(basesTable[source.base]);
 			else						filePath.push(basesTable[defaultBase]);
 			if(source.dir)				filePath.push(source.dir);
-			filePath.push(source.name);
+			if(source.name)				filePath.push(source.name);	//else it's a directory
+			
 			resolvedPaths.push(path.join.apply(path, filePath));
 		});
 		return(resolvedPaths);
@@ -190,7 +191,7 @@ Toolchain.prototype =
 		var compilerPath = path.join(pathsTable.sdk, "bin", "arm-none-eabi-g++");
 		
 		//@@if verbose mode
-		console.log("compilerPath=", compilerPath, "args=", args);
+		//console.log("compilerPath=", compilerPath, "args=", args);
 		
 		var separator = (process.platform == "win32")? ";" : ":";
 		var compiler = childProcess.spawn(compilerPath, args,
@@ -217,9 +218,12 @@ Toolchain.prototype =
 		}.bind(this));
 		compiler.on("exit", function(returnCode)
 		{
-			console.log("stdout: ", stdout);
-			console.log("stderr: ", stderr);
-
+			if(stdout.length > 0)
+				console.log("stdout: ", stdout);
+			
+			if(stderr.length > 0)
+				console.log("stderr: ", stderr);
+			
 			//for each line of output, see if it matches the way GCC formats an error
 			stderr.split("\n").forEach(function(line)
 			{
@@ -612,7 +616,7 @@ if(require.main == module)
 {
 	var compiler = new module.exports.Compiler();
 
-	var projectBase = process.argv[2] || process.cwd;
+	var projectBase = process.argv[2] || process.cwd();
 
 	//@@asyncly determine the sdk path.
 	//  The platform (this), project and output paths are determined without lookup.
@@ -623,8 +627,8 @@ if(require.main == module)
 	{
 		if(sdkBase == undefined)	//no compiler! download it?
 			throw(new Error("No SDK found. This tool cannot work without an SDK."));
-
-		console.log("found compiler at: ", sdkBase);
+		
+		//console.log("found compiler at: ", sdkBase);
 		compiler.compile(
 		{
 			sdk: sdkBase.__path,
@@ -643,11 +647,13 @@ if(require.main == module)
 			else
 			{
 				//console.log("compile() RESULT: ", result);
+				/*
 				for(var i = 0; i < result.compileErrors.length; i++)
 				{
 					console.log(result.compileErrors[i]);
 				}
-
+				*/
+				
 				if(result.returnCode == 0)
 				{
 					var sizeStr, moduleSize = result.sizes[0].size;
