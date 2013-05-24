@@ -817,12 +817,34 @@ void	System::setClockOutputFrequency(unsigned int desiredFrequency)
 		//clock output is currently only a fraction of the main bus clock
 		//@@this could be embellished to selecting the clock source producing the smallest error
 		//  but for Galago, where the onboard crystal is the same frequency as the IRC, it's pointless.
-		*LPC1300::ClockOutputSource = LPC1300::ClockOutputSource_MainClock;
-		System_strobeClockUpdateEnable(LPC1300::ClockOutputSourceUpdate);
 		
-		//@@fix: can only scale by up to 1/255 - if a lower freq. is needed, use a different source.
+		unsigned int busFrequency = getMainClockFrequency(), divisor;
 		
-		*ClockOutputDivider = System_divideClockFrequencyRounded(getMainClockFrequency(), desiredFrequency);
+		//which is closest?
+		//  fo0 = IRC / div0 | HARDWARE_EXTERNAL_CRYSTAL_FREQUENCY / div0	(these two are the same on Galago)
+		//  fo1 = getMainClockFrequency() / div1	(same as option 0 if the PLL is not on)
+		//  fo2 = 3.4MHz / div2		(only buys us oddball quotients down to 13333Hz)
+		
+		if(desiredFrequency > 12000000UL)
+		{
+			*ClockOutputSource = ClockOutputSource_MainClock;
+			divisor = System_divideClockFrequencyRounded(busFrequency, desiredFrequency);
+		}
+		else
+		{
+			if(*MainClockSource == MainClockSource_InternalCrystal)
+				*ClockOutputSource = ClockOutputSource_InternalCrystal;
+			else
+				*ClockOutputSource = ClockOutputSource_ExternalOscillator;
+			
+			divisor = System_divideClockFrequencyRounded(12000000UL, desiredFrequency);
+		}
+		
+		if(divisor > 255)
+			divisor = 255;
+		
+		System_strobeClockUpdateEnable(ClockOutputSourceUpdate);
+		*ClockOutputDivider = divisor;
 	}
 	else
 		*ClockOutputDivider = 0;	//disable
@@ -1042,14 +1064,11 @@ static void		System_wakeFromSpan(unsigned int point)
 
 void	System_onSysTickInterrupt(void);
 
-Task			System::delay(int milliseconds)
+Task			System_delayTicks(unsigned int ticks)
 {
-	//convert to ticks
-	milliseconds *= 400;	//400kHz tickrate
-	
 	//insert a task into the queue
 	Task task = system.createTask();
-	IOCore::TimerTask* timer = new IOCore::TimerTask(milliseconds);
+	IOCore::TimerTask* timer = new IOCore::TimerTask(ticks);
 	timer->task = task;
 	
 	//needs special deadline-order queueing
@@ -1060,7 +1079,7 @@ Task			System::delay(int milliseconds)
 		IOCore::TimerTask** p = (IOCore::TimerTask**)&IOCore.timerCurrentTask;	//ok, inside critical section
 		if(*p != 0)
 		{
-			while((*p != 0) && ((*p)->span < milliseconds))
+			while((*p != 0) && ((*p)->span < ticks))
 				p = (IOCore::TimerTask**)&((*p)->next);
 			timer->next = *p;
 		}
@@ -1073,6 +1092,15 @@ Task			System::delay(int milliseconds)
 	InterruptsEnable();
 	
 	return(task);
+}
+
+Task			System::delayMicro(unsigned int microseconds)
+{
+	return(System_delayTicks((microseconds << 1) / 5));	//convert to ticks (400kHz tickrate)
+}
+Task			System::delay(unsigned int milliseconds)
+{
+	return(System_delayTicks(milliseconds * 400));	//convert to ticks (400kHz tickrate)
 }
 
 void	System_onSysTickInterruptStub(void)

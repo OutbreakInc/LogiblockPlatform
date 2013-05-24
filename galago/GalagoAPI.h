@@ -248,6 +248,8 @@ public:
 		inline Task		write(char const* s, int length = -1, Buffer bytesReadBack = Buffer())		{return(write((byte const*)s, length, bytesReadBack));}
 		Task			write(byte const* s, int length, Buffer bytesReadBack = Buffer());
 		Task			write(unsigned short const* s, int length, Buffer bytesReadBack = Buffer());
+		
+		Task			setSelect(bool select);
 	};
 
 	class I2C
@@ -413,7 +415,8 @@ public:
 	
 					System(void);
 	
-	Task			delay(int milliseconds);
+	Task			delay(unsigned int milliseconds);
+	Task			delayMicro(unsigned int microseconds);
 };
 
 extern IO		io;
