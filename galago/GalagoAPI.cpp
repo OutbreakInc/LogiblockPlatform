@@ -749,7 +749,7 @@ void			System::setCoreFrequency(unsigned int desiredFrequency)
 		}
 		
 		//set the PLL's multiplication factor
-		*PLLControl = bestM;
+		*PLLControl = bestM - 1;
 		
 		//wait for lock
 		while(!(*PLLStatus & PLLStatus_Locked));
@@ -761,8 +761,8 @@ void			System::setCoreFrequency(unsigned int desiredFrequency)
 		//with this divider:
 		*MainBusDivider = bestD;
 		
-		//adjust the SysTick timer to have a nominal rate of 1kHz
-		*SystickClockDivider = busFrequency / 1000;
+		//adjust the SysTick timer to have a nominal rate of 400kHz
+		*SystickClockDivider = busFrequency / 400000;
 	}
 	else
 	{
@@ -782,8 +782,8 @@ void			System::setCoreFrequency(unsigned int desiredFrequency)
 		//turn off the PLL if it was on
 		*PowerDownControl |= PowerDownControl_SystemPLL;
 		
-		//adjust the SysTick timer to have a nominal rate of 1kHz
-		*SystickClockDivider = HARDWARE_EXTERNAL_CRYSTAL_FREQUENCY / 1000;
+		//adjust the SysTick timer to have a nominal rate of 400kHz
+		*SystickClockDivider = HARDWARE_EXTERNAL_CRYSTAL_FREQUENCY / 400000;
 	}
 }
 
@@ -814,6 +814,14 @@ void	System::setClockOutputFrequency(unsigned int desiredFrequency)
 {
 	if(desiredFrequency > 0)
 	{
+		//clock output is currently only a fraction of the main bus clock
+		//@@this could be embellished to selecting the clock source producing the smallest error
+		//  but for Galago, where the onboard crystal is the same frequency as the IRC, it's pointless.
+		*LPC1300::ClockOutputSource = LPC1300::ClockOutputSource_MainClock;
+		System_strobeClockUpdateEnable(LPC1300::ClockOutputSourceUpdate);
+		
+		//@@fix: can only scale by up to 1/255 - if a lower freq. is needed, use a different source.
+		
 		*ClockOutputDivider = System_divideClockFrequencyRounded(getMainClockFrequency(), desiredFrequency);
 	}
 	else
