@@ -1408,14 +1408,36 @@ void			IO::SPI::start(int bitRate, Mode mode, Role role)
 	if(bitRate > 0)
 	{
 		*ClockControl |= ClockControl_SPI0;	//enable SPI0 clock
-		*SPI0ClockPrescaler = 2;	//minimum 2
 
 		*SPI0ClockDivider = 1;
 		
 		*PeripheralnReset |= PeripheralnReset_SPI0;	//deassert reset
 		
-		*SPI0Control0 = mode;
+		//This finds three prescalers, A, B and C such that (Fcpu / (A + 1) / B / C) = bitRate, where C is an even number 2 to 254.
+		// so as to avoid factoring, we cheat here by extracting an 8-bit mantissa (A) and computing 2^exponent, expressed in B and C
+		
+		unsigned int divisor = (system.getCoreFrequency() / bitRate) >> 1;
+		unsigned int magnitude = 32 - __builtin_clz(divisor);
+		unsigned int scale = 0, prescale = 2;
+		
+		if(magnitude > 8)
+		{
+			if(magnitude > 16)
+			{
+				prescale = 1 << (magnitude - 15);
+				magnitude = 16;
+			}
+			divisor >>= (magnitude - 8); //set mantissa
+			
+			scale = ((1 << (magnitude - 8)) - 1);
+		}
+		else
+			scale = 0;
+		
+		*SPI0Control0 = (scale << 8) | mode;
 		*SPI0Control1 = SPI0Control1_Enable;
+		*SPI0ClockPrescaler = prescale;
+		*SPI0ClockDivider = divisor - 1;
 		
 		io.sck.setMode(IO::Pin::SPI);
 		io.miso.setMode(IO::Pin::SPI);
