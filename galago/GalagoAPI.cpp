@@ -700,11 +700,20 @@ void			System_strobeClockUpdateEnable(REGISTER updateEnable)
 	while(!(*updateEnable & 1));	//spinwait for the change to take effect before returning
 }
 
+//returns a valid divisor that would produce a frequency as close as possible to 'd' from source 'n'
 unsigned int	System_divideClockFrequencyRounded(unsigned int n, unsigned int d)
 {
 	unsigned int q = (((n << 1) / d) + 1) >> 1;
 	return(q? q : 1);
 }
+
+//returns a dimensionless error value 
+unsigned int	System_computeClockError(unsigned int n, unsigned int d, unsigned int desiredFrequency)
+{
+	int err = ((int)(n / d)) - (int)desiredFrequency;
+	return((err < 0)? -err : err);
+}
+
 void			System::setCoreFrequency(unsigned int desiredFrequency)
 {
 	//128KHz is established as a practical minimum
@@ -814,36 +823,50 @@ void	System::setClockOutputFrequency(unsigned int desiredFrequency)
 {
 	if(desiredFrequency > 0)
 	{
-		//clock output is currently only a fraction of the main bus clock
-		//@@this could be embellished to selecting the clock source producing the smallest error
-		//  but for Galago, where the onboard crystal is the same frequency as the IRC, it's pointless.
+		unsigned int busFrequency = getMainClockFrequency(), divisor, source;
 		
-		unsigned int busFrequency = getMainClockFrequency(), divisor;
+		//Note: The WDT clock source was removed because it produces inconsistent results.
 		
-		//which is closest?
-		//  fo0 = IRC / div0 | HARDWARE_EXTERNAL_CRYSTAL_FREQUENCY / div0	(these two are the same on Galago)
-		//  fo1 = getMainClockFrequency() / div1	(same as option 0 if the PLL is not on)
-		//  fo2 = 3.4MHz / div2		(only buys us oddball quotients down to 13333Hz)
+		//which is closest when divided to the desired frequency?
+		//  the internal/external oscillator at 12MHz, the PLL output or the WDT oscillator?
+		unsigned int d0 = System_divideClockFrequencyRounded(12000000, desiredFrequency);
+		unsigned int d1 = System_divideClockFrequencyRounded(busFrequency, desiredFrequency);
+		//unsigned int d2 = System_divideClockFrequencyRounded(3400000, desiredFrequency);
 		
-		if(desiredFrequency > 12000000UL)
+		unsigned int e0 = System_computeClockError(12000000, d0, desiredFrequency);
+		unsigned int e1 = System_computeClockError(busFrequency, d1, desiredFrequency);
+		//unsigned int e2 = System_computeClockError(3400000, d2, desiredFrequency);
+		
+		//if(e0 < e2)
+		if(1)
 		{
-			*ClockOutputSource = ClockOutputSource_MainClock;
-			divisor = System_divideClockFrequencyRounded(busFrequency, desiredFrequency);
+			if(e0 < e1)
+			{
+				divisor = d0;
+				source = (*MainClockSource == MainClockSource_InternalCrystal)?
+					ClockOutputSource_InternalCrystal :
+					ClockOutputSource_ExternalOscillator;
+			}
+			else
+				{divisor = d1; source = ClockOutputSource_MainClock;}
 		}
+		/*
 		else
 		{
-			if(*MainClockSource == MainClockSource_InternalCrystal)
-				*ClockOutputSource = ClockOutputSource_InternalCrystal;
+			if(e1 < e2)
+				{divisor = d1; source = ClockOutputSource_MainClock;}
 			else
-				*ClockOutputSource = ClockOutputSource_ExternalOscillator;
-			
-			divisor = System_divideClockFrequencyRounded(12000000UL, desiredFrequency);
+			{
+				divisor = d2;
+				*PowerDownControl &= ~PowerDownControl_WatchdogOscillator;
+				source = ClockOutputSource_WDTOscillator;
+			}
 		}
+		*/
 		
-		if(divisor > 255)
-			divisor = 255;
-		
+		*ClockOutputSource = source;
 		System_strobeClockUpdateEnable(ClockOutputSourceUpdate);
+		
 		*ClockOutputDivider = divisor;
 	}
 	else
