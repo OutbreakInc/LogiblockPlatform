@@ -300,12 +300,6 @@ public:
 		};
 		typedef int		Mode;
 		
-		typedef enum
-		{
-			BytesReceived,
-			ErrorReceived,
-		} Event;
-		
 		void			start(int baudRate = 9600, Mode mode = Default);
 		void			startWithExplicitRatio(int divider, int fracN, int fracD, Mode mode);
 		inline void		stop(void)	{start(0);}
@@ -443,6 +437,5 @@ inline void			operator delete[](void* p)
 	if(((unsigned int)(size_t)p) & 0x3)	return;	//@@throw
 	Galago::System::free((unsigned int*)p);
 }
-
 
 #endif //defined __GALAGO_H__

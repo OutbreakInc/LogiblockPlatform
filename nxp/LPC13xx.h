@@ -983,6 +983,7 @@
 			UARTLineStatus_RxFIFOEmpty				=	(0x80),
 		};
 	REGISTER	UARTModemStatus =			REGISTER_ADDRESS(0x40008018);	//read-only
+	REGISTER	UARTScratch =				REGISTER_ADDRESS(0x4000801C);
 	REGISTER	UARTAutoBaudControl =		REGISTER_ADDRESS(0x40008020);
 	REGISTER	UARTFractionalDivider =		REGISTER_ADDRESS(0x40008028);
 	REGISTER	UARTTransmitEnabled =		REGISTER_ADDRESS(0x40008030);
@@ -1439,8 +1440,8 @@
 	extern "C" {
 	#endif //__cplusplus
 	
-	void		_Sleep(void);
-	void		_Reset(void);
+	void		Sleep(void);
+	void		Reset(void);
 	
 	void		IRQ_WakeupPIO0_0(void);
 	void		IRQ_WakeupPIO0_1(void);

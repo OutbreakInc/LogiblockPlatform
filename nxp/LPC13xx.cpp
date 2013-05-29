@@ -218,14 +218,14 @@ extern "C" void STARTUP INTERRUPT _SVCall(void)
 }
 */
 
-extern "C" void STARTUP _Sleep(void)
+extern "C" void STARTUP Sleep(void)
 {
 	//@@enter PMU state
 	__asm__ volatile ("wfi"::);	//chip is sleeping, waiting for the next event.
 	//@@exit PMU state
 }
 
-extern "C" void STARTUP _Reset(void)
+extern "C" void STARTUP Reset(void)
 {
 	*((unsigned int volatile*)(0xE000ED0C)) = 0x05FA0004;	//invoke a hard reset
 }
@@ -233,7 +233,6 @@ extern "C" void STARTUP _Reset(void)
 extern "C" void STARTUP INTERRUPT ignoreInterrupt(void)
 {
 }
-
 
 void* __dso_handle = 0;
 

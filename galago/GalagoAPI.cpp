@@ -176,9 +176,9 @@ int	CircularBuffer::write(byte const* b, int length)
 
 bool	CircularBuffer::read(byte* b)
 {
+	if(_tail == _head)	return(false);	//empty
 	byte* n = _tail + 1;
 	if(n == _end)	n = _start;
-	if(n == _head)	return(false);
 	*b = *(_tail = n);
 	return(true);
 }
@@ -1048,7 +1048,7 @@ bool			System::when(Task t, void (*completion)(void* context, Task, bool success
 void			System::sleep(void) const
 {
 	//@@deep-sleep and interrupt arming as appropriate
-	_Sleep();
+	Sleep();
 	//@@deep-sleep and interrupt disarming
 }
 
@@ -1721,7 +1721,7 @@ void	IO_onUARTInterrupt(void)
 		switch(iid & UARTInterruptID_ReasonMask)
 		{
 		case UARTInterruptID_ReceiveException:
-			(volatile void)*UARTLineStatus;
+			*UARTScratch = *UARTLineStatus;
 			break;
 			
 		case UARTInterruptID_DataAvailable:
@@ -1748,8 +1748,9 @@ void	IO_onUARTInterrupt(void)
 	
 	if(received && (IOCore.uartRecvTask != Task()))
 	{
-		system.completeTask(IOCore.uartRecvTask);
+		Task recvTask = IOCore.uartRecvTask;
 		IOCore.uartRecvTask = Task();
+		system.completeTask(recvTask);
 	}
 }
 
