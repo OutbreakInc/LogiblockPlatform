@@ -311,7 +311,7 @@ public:
 		Task			bytesReceived(void);
 		
 		//these functions are synchronous and nonblocking, returning only what's in the buffer (and not waiting for data)
-		inline int		read(char* s, int length)	{read((byte*)s, length);}
+		inline int		read(char* s, int length)	{return(read((byte*)s, length));}
 		int				read(byte* s, int length);
 
 		typedef enum
