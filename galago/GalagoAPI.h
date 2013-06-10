@@ -190,7 +190,6 @@ public:
 		void			setMode(Mode mode, Feature feature = Normal);
 		
 	private:
-		inline			Pin(unsigned int value): v(value)	{setMode(Default);}
 		inline			Pin(Pin const& p): v(p.v)			{}
 		explicit inline	Pin(bool)							{}
 		

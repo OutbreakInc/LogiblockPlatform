@@ -1293,6 +1293,7 @@ static unsigned char const IO_ioConfigForPin[] =
 	for(int i = PIN_P0; i < (PIN_LED + 1); i++)
 	{
 		p->v = ((((unsigned int)kIOPinChart[i]) << 16) | i);
+		p->setMode(Pin::Default);
 		p++;
 	}
 	
