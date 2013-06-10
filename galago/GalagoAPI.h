@@ -168,28 +168,31 @@ public:
 			OpenDrain,
 		} Feature;
 		
-		inline			Pin(Pin const& p): v(p.v)			{}
-		inline	Pin&	operator =(Pin const& p)			{v = p.v; return(*this);}
-
+		inline			Pin(void): v(~0)					{}
+		
+		inline	Pin&	bind(Pin const& p)		{v = p.v; return(*this);}
+		
 		inline	Pin&	operator =(bool value)	{write(value? 1 : 0); return(*this);}
 		inline	Pin&	operator =(int value)	{write(value); return(*this);}
+		inline	Pin&	operator =(Pin& p)		{write(p.read()); return(*this);}
 		inline			operator bool(void)		{return((bool)read());}
-
-		int				read(void);
-		unsigned int	readAnalog(void);
+		
+		int				read(void) const;
+		unsigned int	readAnalog(void) const;
 		unsigned int	analogValue(void) const;
 		void			write(int value);
-
+		
 		inline	void	setOutput(void)		{setMode(DigitalOutput);}
 		inline	void	setInput(void)		{setMode(DigitalInput);}
 		inline	void	setAnalog(void)		{setMode(AnalogInput);}
 		inline	void	setPWM(void)		{setMode(PWM);}
 		
 		void			setMode(Mode mode, Feature feature = Normal);
-
+		
 	private:
 		inline			Pin(unsigned int value): v(value)	{setMode(Default);}
-		inline			Pin(void)							{}
+		inline			Pin(Pin const& p): v(p.v)			{}
+		explicit inline	Pin(bool)							{}
 		
 		unsigned int	v;
 	};

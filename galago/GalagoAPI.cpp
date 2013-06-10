@@ -1218,13 +1218,13 @@ static unsigned int const kPinFunc2IsPWM =	(_BIT(PIN_P1) | _BIT(PIN_MISO) | _BIT
 //Special is always 1 except for gpio0.0 where it's 0
 
 
-#define PIN_STATE(pinID, ioPort, ioPinNumber)		((ioPort << 24) | (ioPinNumber << 16) | pinID)
+#define PIN_STATE(pinID, ioPort, ioPinNumber)		((ioPort << 8) | (ioPinNumber))
 #define PIN_ID(v)					(v & 0xFF)
 #define PIN_IO_PORT(v)				(v >> 24)
 #define PIN_IO_PIN_NUM(v)			((v >> 16) & 0xFF)
 #define PIN_GPIO_DATA_PORT(port)	REGISTER_ADDRESS(0x50000000 | (port << 16))
 #define PIN_GPIO_DIR_PORT(port)		REGISTER_ADDRESS(0x50008000 | (port << 16))
-static unsigned int const kIOPinChart[] =	//@@this could be reduced to 1/4 its size to save 78 bytes :-o
+static unsigned short const kIOPinChart[] =
 {
 	PIN_STATE(PIN_P0, 0, 0),	//P0
 	PIN_STATE(PIN_P1, 0, 1),	//P1
@@ -1272,7 +1272,14 @@ static unsigned char const IO_ioConfigForPin[] =
 	0x6C,										//LED
 };
 
-				IO::IO(void)
+				IO::IO(void):
+					p0(true), p1(true), p2(true), p3(true), p4(true), p5(true), p6(true),
+					dminus(true), dplus(true),
+					rts(true), cts(true), txd(true), rxd(true),
+					sda(true), scl(true),
+					sck(true), sel(true), miso(true), mosi(true),
+					a0(true), a1(true), a2(true), a3(true), a5(true), a7(true),
+					led(true)
 {
 	*IOConfigSCKLocation = IOConfigSCKLocation_PIO0_6;	//put SCK0 on pin pio0.6, labeled 'SCK' on Galago
 	
@@ -1283,13 +1290,16 @@ static unsigned char const IO_ioConfigForPin[] =
 	*ADCControl = (3 << 8) | ADCControl_10BitSample_11Clocks;
 	
 	Pin* p = &p0;
-	for(int i = 0; i < 26; i++)
-		*p++ = Pin(kIOPinChart[i]);
+	for(int i = PIN_P0; i < (PIN_LED + 1); i++)
+	{
+		p->v = ((((unsigned int)kIOPinChart[i]) << 16) | i);
+		p++;
+	}
 	
 	led = 1;	//!LED deasserted (unlit) initially
 }
 
-int				IO::Pin::read(void)
+int				IO::Pin::read(void) const
 {
 	return(PIN_GPIO_DATA_PORT(PIN_IO_PORT(v))[1 << PIN_IO_PIN_NUM(v)]);
 }
@@ -1298,7 +1308,7 @@ void			IO::Pin::write(int value)
 	PIN_GPIO_DATA_PORT(PIN_IO_PORT(v))[1 << PIN_IO_PIN_NUM(v)] = (value ? (~0) : 0);
 }
 
-unsigned int	IO::Pin::readAnalog(void)
+unsigned int	IO::Pin::readAnalog(void) const
 {
 	*ClockControl |= ClockControl_ADC;
 	
