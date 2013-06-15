@@ -1922,6 +1922,11 @@ void	IO::I2C::start(int bitRate, IO::I2C::Role role)
 {
 	*PeripheralnReset &= ~PeripheralnReset_I2C;	//assert reset
 	
+	InterruptsDisable();
+
+	//empty the queue in any case
+	IOCore.flushQueue((IOCore::TaskQueueItem**)&IOCore.i2cCurrentTask);
+	
 	if(bitRate > 0)
 	{
 		*ClockControl |= ClockControl_I2C;
@@ -1950,25 +1955,25 @@ void	IO::I2C::start(int bitRate, IO::I2C::Role role)
 		io.scl.setMode(IO::Pin::Default);
 		io.sda.setMode(IO::Pin::Default);
 		
-		InterruptsDisable();
-			
-			*I2CControlClear = I2CControlSet_Ack | I2CControlSet_Interrupt
-								| I2CControlSet_StartCondition | I2CControlSet_EnableI2C;
-			
-			//shut down I2C clock
-			*ClockControl &= ~ClockControl_I2C;
-			*InterruptEnableClear1 = Interrupt1_I2C;
-			
-			//empty the queue
-			IOCore.flushQueue((IOCore::TaskQueueItem**)&IOCore.i2cCurrentTask);
-			
-		InterruptsEnable();
+		*I2CControlClear = I2CControlSet_Ack | I2CControlSet_Interrupt
+							| I2CControlSet_StartCondition | I2CControlSet_EnableI2C;
+		
+		//shut down I2C clock
+		*ClockControl &= ~ClockControl_I2C;
+		*InterruptEnableClear1 = Interrupt1_I2C;
 	}
+	InterruptsEnable();
 }
 
 Task	IO::I2C::write(byte address, Buffer s, IO::I2C::RepeatedStartSetting repeatedStart)
 {
 	Task task = system.createTask();
+	if(!(*PeripheralnReset | PeripheralnReset_I2C))	//if in reset mode, I2C system is inactive and this job should fail.
+	{
+		system.completeTask(task, false);	//synchronous failure
+		return(task);
+	}
+	
 	IOCore::I2CTask* i2cTask = new(1 + s.length()) IOCore::I2CTask(1 + s.length());
 	i2cTask->data[0] = address;
 	
