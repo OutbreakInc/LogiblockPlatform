@@ -3,6 +3,7 @@ var fs = require("fs");
 var path = require("path");
 var childProcess = require("child_process");
 var moduleverse = require("moduleverse");
+var	Q = require("q");
 
 ////////////////////////////////////////////////////////////////
 
@@ -12,10 +13,20 @@ var Config =
 	{
 		switch(process.platform)
 		{
-		case "darwin":	return(process.env["HOME"] + "/Library/Application Support/Logiblock/modules");
+		case "darwin":	return(path.join(process.env["HOME"], "Library/Application Support/Logiblock/modules"));
 		default:
-		case "linux":	return(process.env["HOME"] + ".logiblock/modules");
+		case "linux":	return(path.join(process.env["HOME"], ".logiblock/modules"));
 		case "win32":	return(path.join(process.env["APPDATA"], "Logiblock", "modules"));
+		}
+	},
+	modulesDir: function modulesDir()
+	{
+		switch(process.platform)
+		{
+		case "darwin":	return(path.join(process.env["HOME"], "Documents/Logiblock/modules"));
+		default:
+		case "linux":	return(path.join(process.env["HOME"], "logiblock/modules"));
+		case "win32":	return(path.join(process.env["HOMEDIR"], "Logiblock", "modules"));
 		}
 	},
 	platformName: function sdkName()
@@ -557,10 +568,12 @@ Compiler.prototype =
 				
 				var deps = [];
 				//resolve dependencies
-				for(var depName in settings.dependencies)
+				for(var depNum in settings.dependencies)
 				{
-					var dep = settings.dependencies[depName];
-					deps.push(moduleverse.findLocalInstallation(Config.moduleDir(), depName, dep));
+					var depName = settings.dependencies[depNum];
+					//@@filter depName to replace "/" with "+" here??
+					console.log("Matching dependency: ", Config.modulesDir(), depName);
+					deps.push(moduleverse.findLocalInstallation(Config.modulesDir(), depName, depName));
 				}
 
 				var build = function build(dependencyJSON)
@@ -590,7 +603,7 @@ Compiler.prototype =
 				};
 				
 				if(deps.length > 0)
-					Q.all(deps, build);
+					Q.all(deps).then(build);
 				else
 					build([]);
 			});
@@ -625,13 +638,52 @@ if(require.main == module)
 
 	sdkPromise.then(function(sdkBase)
 	{
-		if(sdkBase == undefined)	//no compiler! download it?
-			throw(new Error("No SDK found. This tool cannot work without an SDK."));
+		if(sdkBase == undefined)	//no SDK! download it?
+		{
+			console.log("Did not find an SDK on your system.  I will try to download the latest one\n and then build your project.\nNote: you must have an internet connection to update.");
+
+			var percent = "0.00", lastFile = "", blank = "                        ";
+
+			var downloadPromise = new moduleverse.ModuleUpdater(Config.baseDir(), "logiblock", Config.sdkName(), undefined, "SDK")
+				.on("version", function(ver)
+				{
+					console.log("Downloading SDK version: " + ver);
+				})
+				.on("progress", function(loaded, total)
+				{
+					percent = (100 * loaded / total).toFixed(2);
+					process.stdout.write("Downloaded: " + percent + "% - " + lastFile + "..." + blank.substr(lastFile.length) + "\r");
+				})
+				.on("file", function(file)
+				{
+					lastFile = path.basename(file);
+					if(lastFile.length > 20)
+						lastFile = lastFile.substr(0, 20);
+					process.stdout.write("Downloaded: " + percent + "% - " + lastFile + "..." + blank.substr(lastFile.length) + "\r");
+				}).promise;
+
+			var sdkPromise = Q.defer();
+
+			downloadPromise.then(function(sdkBase)
+			{
+				console.log("Downloaded and installed successfully!");
+				sdkPromise.resolve(sdkBase);
+			}).fail(function(err)
+			{
+				console.err("Could not download the SDK! Check for more detailed help or instructions at:\nhttp://logiblock.com/ide");
+				sdkPromise.reject(err);
+			});
+			
+			return(sdkPromise.promise);
+		}
+		else
+			return(sdkBase.__path);
 		
-		//console.log("found compiler at: ", sdkBase);
+	}).then(function(sdkBasePath)
+	{
 		compiler.compile(
 		{
-			sdk: sdkBase.__path,
+			sdk: sdkBasePath,
 			project: projectBase,
 			platform: path.resolve(__dirname, ".."),
 			module: Config.baseDir(),
@@ -668,7 +720,7 @@ if(require.main == module)
 				}
 				else
 				{
-					console.log("Did not build successfully.  Please check the compiler warnings and errors list for more information.");
+					console.warn("Did not build successfully.  Please check the compiler warnings and errors list for more information.");
 				}
 				process.exit(result.returnCode);
 			}
@@ -676,6 +728,6 @@ if(require.main == module)
 
 	}).fail(function(error)
 	{
-		console.error("Error! ", error);
+		console.warn("Could not build the project!");
 	});
 }
