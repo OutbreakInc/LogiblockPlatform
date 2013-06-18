@@ -1139,13 +1139,15 @@ void	System_onSysTickInterrupt(void)
 	{
 		if(timer->span == 0)
 		{
-			system.completeTask(timer->task, true);
+			Task complete = timer->task;
 			IOCore::TimerTask* old = timer;
 			
 			//this works because we can only dequeue timer tasks from the beginning of the list
 			IOCore.timerCurrentTask = timer = (IOCore::TimerTask*)timer->next;
 			
 			delete old;
+			
+			system.completeTask(complete, true);
 		}
 		else
 			timer = (IOCore::TimerTask*)timer->next;
