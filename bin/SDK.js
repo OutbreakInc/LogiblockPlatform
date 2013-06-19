@@ -756,7 +756,7 @@ if(require.main == module)
 				files: [{name: "main.cpp"}],
 				compatibleWith: ["Galago4"]
 			}));
-			fs.writeFileSync(path.join(options.projectBase, "main.cpp"), "#include <GalagoAPI.h>\nusing namespace Galago;\n\nstruct Context\n{\n\tint iteration;\n\n\tContext(void): iteration(0) {}\n};\n\nvoid statusTask(void* c, Task, bool)\n{\n\tContext* context = (Context*)c;\n\n\tio.serial.write(\"\r\n Iteration \");\n\tio.serial.write(context->iteration);\n\tcontext->iteration++;\n\n\tio.led = !io.led;\n\n\tsystem.when(system.delay(500), statusTask, c);\n}\n\nint main(void)\n{\n\tio.serial.start(38400);\n\n\tsystem.when(system.delay(500), statusTask, new Context());\n\n\twhile(true)\n\t\tsystem.sleep();\n}\n");
+			fs.writeFileSync(path.join(options.projectBase, "main.cpp"), "#include <GalagoAPI.h>\nusing namespace Galago;\n\nstruct Context\n{\n\tint iteration;\n\n\tContext(void): iteration(0) {}\n};\n\nvoid statusTask(void* c, Task, bool)\n{\n\tContext* context = (Context*)c;\n\n\tio.serial.write(\"\\r\\n Iteration \");\n\tio.serial.write(context->iteration);\n\tcontext->iteration++;\n\n\tio.led = !io.led;\n\n\tsystem.when(system.delay(500), statusTask, c);\n}\n\nint main(void)\n{\n\tio.serial.start(38400);\n\n\tsystem.when(system.delay(500), statusTask, new Context());\n\n\twhile(true)\n\t\tsystem.sleep();\n}\n");
 			console.log("wrote: ", path.join(options.projectBase, "main.cpp"));
 		}
 
