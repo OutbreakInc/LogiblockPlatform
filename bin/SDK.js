@@ -892,7 +892,7 @@ if(require.main == module)
 							keypress(process.stdin);
 							process.stdin.on("keypress", function(ch, keypress)
 							{
-								gdbProcess.write(ch);
+								gdbProcess.write((ch !== undefined)? ch : keypress.sequence);
 							});
 							process.stdin.setRawMode(true);
 							process.stdin.resume();
