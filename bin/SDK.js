@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 //requires are usually stated inside the exports= block below but here they're shared with the entrypoint driver (at bottom of file)
 var fs = require("fs");
 var path = require("path");

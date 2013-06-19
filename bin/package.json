@@ -19,7 +19,7 @@
 	],
 	"dependencies":
 	{
-		"moduleverse": ">=0.0.8",
+		"moduleverse": ">=0.1.0",
 		"q": "0.9.4"
 	},
 	"author": "Kuy Mainwaring",
