@@ -48,6 +48,16 @@ var Config =
 		case "linux":	return("sdk-arm-gcc-linux64");
 		case "win32":	return("sdk-arm-gcc-win32");
 		}
+	},
+	gdbServerName: function sdkName()
+	{
+		switch(process.platform)
+		{
+		case "darwin":	return("GalagoServer.darwin");
+		default:
+		case "linux":	return("GalagoServer.linux64");
+		case "win32":	return("GalagoServer.win32");
+		}
 	}
 };
 
@@ -629,7 +639,50 @@ if(require.main == module)
 {
 	var compiler = new module.exports.Compiler();
 
-	var projectBase = process.argv[2] || process.cwd();
+	var options =
+	{
+		build: true,
+		runDriver: false,
+		install: false,
+		runGDB: false,
+		experimental: false,
+		projectBase: undefined
+	};
+
+	for(var i = 2; i < process.argv.length; i++)
+	{
+		switch(process.argv[i])
+		{
+		case "-i":
+		case "-install":
+		case "--install":
+			//options.build = false;
+			options.runDriver = true;
+			options.runGDB = false;
+			options.install = true;
+			options.experimental = true;
+			break;
+		case "-d":
+		case "-debug":
+		case "--debug":
+			//options.build = false;
+			options.runDriver = true;
+			options.runGDB = true;
+			options.experimental = true;
+			break;
+		default:
+			if(options.projectBase == undefined)
+				options.projectBase = process.argv[i];
+			else
+			{
+				console.warn("Too many projects specified!");
+				process.exit();
+			}
+		}
+	}
+
+	if(options.projectBase == undefined)
+		options.projectBase = process.cwd();
 
 	//@@asyncly determine the sdk path.
 	//  The platform (this), project and output paths are determined without lookup.
@@ -681,50 +734,164 @@ if(require.main == module)
 		
 	}).then(function(sdkBasePath)
 	{
-		compiler.compile(
-		{
-			sdk: sdkBasePath,
-			project: projectBase,
-			platform: path.resolve(__dirname, ".."),
-			module: Config.baseDir(),
-			output: projectBase,	//@@for now
-		}, function(err, outputFile, result)
-		{
-			if(err)
-			{
-				console.warn("Compiling failed!  Error:");
-				console.warn(err);
-				process.exit(-1);
-			}
-			else
-			{
-				//console.log("compile() RESULT: ", result);
-				/*
-				for(var i = 0; i < result.compileErrors.length; i++)
-				{
-					console.log(result.compileErrors[i]);
-				}
-				*/
-				
-				if(result.returnCode == 0)
-				{
-					var sizeStr, moduleSize = result.sizes[0].size;
-					if(moduleSize >= 1048576)
-						sizeStr = (moduleSize / 1048576).toFixed(2) + "MB";
-					else if(moduleSize >= 1024)
-						sizeStr = (moduleSize / 1024).toFixed(2) + "KB";
+		//now that we have an SDK, invoke GDB or build as appropriate
 
-					console.log("Built successfully, using " + sizeStr + " of 32KB.");	//@@pull size limit from targets
-
-					console.log("\n  ELF output:  " + outputFile + "\n  Binary image:  " + result.binaryPath + "\n  Disassembly file:  " + result.disasmPath + "\n");
+		if(options.build)
+		{
+			console.log("Building...");
+			compiler.compile(
+			{
+				sdk: sdkBasePath,
+				project: options.projectBase,
+				platform: path.resolve(__dirname, ".."),
+				module: Config.baseDir(),
+				output: options.projectBase,	//@@for now
+			}, function(err, outputFile, result)
+			{
+				if(err)
+				{
+					console.warn("Compiling failed!  Error:");
+					console.warn(err);
+					process.exit(-1);
 				}
 				else
 				{
-					console.warn("Did not build successfully.  Please check the compiler warnings and errors list for more information.");
+					//console.log("compile() RESULT: ", result);
+					/*
+					for(var i = 0; i < result.compileErrors.length; i++)
+					{
+						console.log(result.compileErrors[i]);
+					}
+					*/
+					
+					if(result.returnCode == 0)
+					{
+						var sizeStr;
+						if(result.sizes && (result.sizes.length > 0))
+						{
+							var moduleSize = result.sizes[0].size;
+							
+							if(moduleSize >= 1048576)
+								sizeStr = (moduleSize / 1048576).toFixed(2) + "MB";
+							else if(moduleSize >= 1024)
+								sizeStr = (moduleSize / 1024).toFixed(2) + "KB";
+						}
+						else
+							sizeStr = "(unknown)";
+
+						console.log("Built successfully, using " + sizeStr + " of 32KB.");	//@@pull size limit from targets
+
+						console.log("\n  ELF output:  " + outputFile + "\n  Binary image:  " + result.binaryPath + "\n  Disassembly file:  " + result.disasmPath + "\n");
+					}
+					else
+					{
+						console.warn("Did not build successfully.  Please check the compiler warnings and errors list for more information.");
+						process.exit(result.returnCode);
+					}
+
+
+					if(options.experimental)
+						console.log("\nNOTICE: you have specified an EXPERIMENTAL mode\n  that is known not to work on Windows.\n");
+
+					var installPromise = Q.defer();
+					if(options.runDriver)
+					{
+						var driverOptions = [];
+						var driverNoisy = true;
+
+						if(options.install)
+							driverOptions.push(outputFile);
+						else
+						{
+							console.log("No firmware download requested.");
+							driverNoisy = false;
+							installPromise.resolve();
+						}
+						
+						var driverProcess = childProcess.spawn(path.join(__dirname, Config.gdbServerName()), driverOptions, {});
+						
+						process.on("SIGINT", function()
+						{
+							return(false);
+						});
+
+						driverProcess.stdout.setEncoding("utf8");
+						driverProcess.stderr.setEncoding("utf8");
+
+						driverProcess.stdout.on("data", function(d)
+						{
+							if(driverNoisy)
+								process.stdout.write(d);
+						});
+						driverProcess.stderr.on("data", function(d)
+						{
+							if(driverNoisy)
+								process.stdout.write(d);
+
+							if(d.match(/Progress 100\.00/) != null)	//@@dirty hack!
+							{
+								installPromise.resolve();
+								driverNoisy = false;
+							}
+						});
+
+						driverProcess.on("exit", function(code)
+						{
+							console.warn("Driver terminated unexpectedly!");	//red herring?
+						});
+					}
+					else
+						installPromise.resolve();
+
+					if(options.runGDB)
+					{
+						var pty = require("./pty.js-prebuilt");
+						
+						installPromise.promise.then(function()
+						{
+							console.log("Starting GDB...");
+							var gdbProcess = pty.spawn(path.join(sdkBasePath, "bin", "arm-none-eabi-gdb"), [outputFile],
+							{
+								name: "xterm",
+								cwd: options.projectBase,
+								env: process.env
+							});
+							
+							gdbProcess.on("data", function(d)
+							{
+								process.stdout.write(d);
+							});
+
+							process.stdin.on("data", function(d)
+							{
+								gdbProcess.write(d);
+							});
+							
+							process.stdin.setRawMode();
+							process.stdin.resume();
+							process.on("SIGINT", function()
+							{
+								gdbProcess.kill("SIGINT");	//send it right along
+								return(false);
+							});
+							
+							gdbProcess.on("exit", function(code)
+							{
+								process.exit(code);
+							});
+							gdbProcess.write("target remote localhost:1033\n");	//give it a whirl on the most common port.
+						});
+					}
+					else
+						installPromise.promise.then(function()
+						{
+							if(options.install)
+								console.log("Firmware downloaded and execution is paused on the first instruction.\nAttach a debugger, reset or power-cycle the device to run.");
+							process.exit(0);
+						});
 				}
-				process.exit(result.returnCode);
-			}
-		});
+			});
+		}
 
 	}).fail(function(error)
 	{
