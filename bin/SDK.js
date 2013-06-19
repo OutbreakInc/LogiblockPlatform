@@ -662,6 +662,11 @@ if(require.main == module)
 			options.install = true;
 			options.experimental = true;
 			break;
+		case "-n":
+		case "-init":
+		case "--init":
+			options.init = true;
+			break;
 		case "-d":
 		case "-debug":
 		case "--debug":
@@ -735,6 +740,25 @@ if(require.main == module)
 	}).then(function(sdkBasePath)
 	{
 		//now that we have an SDK, invoke GDB or build as appropriate
+
+		if(options.init)
+		{
+			if(fs.existsSync(path.join(options.projectBase, "module.json")))
+			{
+				console.warn("Error: There's already a project here, I won't overwrite it.");
+				process.exit(-1);
+			}
+
+			fs.writeFileSync(path.join(options.projectBase, "module.json"), JSON.stringify(
+			{
+				name: "example",
+				version: "0.1",
+				files: [{name: "main.cpp"}],
+				compatibleWith: ["Galago4"]
+			}));
+			fs.writeFileSync(path.join(options.projectBase, "main.cpp"), "#include <GalagoAPI.h>\nusing namespace Galago;\n\nstruct Context\n{\n\tint iteration;\n\n\tContext(void): iteration(0) {}\n};\n\nvoid statusTask(void* c, Task, bool)\n{\n\tContext* context = (Context*)c;\n\n\tio.serial.write(\"\r\n Iteration \");\n\tio.serial.write(context->iteration);\n\tcontext->iteration++;\n\n\tio.led = !io.led;\n\n\tsystem.when(system.delay(500), statusTask, c);\n}\n\nint main(void)\n{\n\tio.serial.start(38400);\n\n\tsystem.when(system.delay(500), statusTask, new Context());\n\n\twhile(true)\n\t\tsystem.sleep();\n}\n");
+			console.log("wrote: ", path.join(options.projectBase, "main.cpp"));
+		}
 
 		if(options.build)
 		{
@@ -895,6 +919,6 @@ if(require.main == module)
 
 	}).fail(function(error)
 	{
-		console.warn("Could not build the project!");
+		console.warn("Could not build the project! Error: ", error);
 	});
 }
