@@ -6,7 +6,7 @@
 
 var net = require('net');
 var tty = require('tty');
-var pty = require('./pty.' + process.platform + '.node');
+var pty = require('./' + process.platform + '/pty.node');
 
 /**
  * Terminal

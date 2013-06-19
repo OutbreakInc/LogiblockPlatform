@@ -19,8 +19,8 @@
 	],
 	"dependencies":
 	{
-		"moduleverse": ">=0.1.0",
-		"q": "0.9.4"
+		"moduleverse": ">=0.1.1",
+		"q": "0.9.6"
 	},
 	"author": "Kuy Mainwaring",
 	"license": "CC-SA-BY-3.0"
