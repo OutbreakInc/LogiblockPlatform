@@ -872,6 +872,7 @@ if(require.main == module)
 					if(options.runGDB)
 					{
 						var pty = require("./pty.js-prebuilt");
+						var keypress = require("keypress");
 						
 						installPromise.promise.then(function()
 						{
@@ -888,13 +889,14 @@ if(require.main == module)
 								process.stdout.write(d);
 							});
 
-							process.stdin.on("data", function(d)
+							keypress(process.stdin);
+							process.stdin.on("keypress", function(ch, keypress)
 							{
-								gdbProcess.write(d);
+								gdbProcess.write(ch);
 							});
-							
-							process.stdin.setRawMode();
+							process.stdin.setRawMode(true);
 							process.stdin.resume();
+
 							process.on("SIGINT", function()
 							{
 								gdbProcess.kill("SIGINT");	//send it right along
