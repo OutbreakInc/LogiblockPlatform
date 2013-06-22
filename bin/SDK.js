@@ -55,10 +55,10 @@ var Config =
 	{
 		switch(process.platform)
 		{
-		case "darwin":	return("GalagoServer.darwin");
+		case "darwin":	return("GalagoServer-Mac");
 		default:
-		case "linux":	return("GalagoServer.linux64");
-		case "win32":	return("GalagoServer.win32");
+		case "linux":	return("GalagoServer-linux64");
+		case "win32":	return("GalagoServer-win32.exe");
 		}
 	}
 };
