@@ -1,11 +1,31 @@
 #!/usr/bin/env node
 
-//requires are usually stated inside the exports= block below but here they're shared with the entrypoint driver (at bottom of file)
 var fs = require("fs");
 var path = require("path");
 var childProcess = require("child_process");
 var moduleverse = require("moduleverse");
 var	Q = require("q");
+var EventEmitter = require("events").EventEmitter;
+
+////////////////////////////////////////////////////////////////
+
+function _extend(obj)
+{
+	var recurse = arguments.callee;
+	Array.prototype.slice.call(arguments, 1).forEach(function(source)
+	{
+		for(var prop in source)
+		{
+			if(source[prop] instanceof Array)
+				obj[prop] = ((obj[prop] instanceof Array)? obj[prop] : []).concat(source[prop]);
+			else if((typeof(obj[prop]) == "object") && (typeof(source[prop]) == "object"))
+				recurse(obj[prop], source[prop]);
+			else
+				obj[prop] = source[prop];
+		}
+	});
+	return(obj);
+}
 
 ////////////////////////////////////////////////////////////////
 
@@ -63,6 +83,69 @@ var Config =
 	}
 };
 
+////////////////////////////////////////////////////////////////
+
+SubProcess.prototype = _extend(new EventEmitter(),
+{
+	spawn: function SubProcess_spawn(path, args, options)
+	{
+		var ths = this;
+		this.quit();	//terminate existing process
+
+		this._process = childProcess.spawn(this._path = path, this._args = args, this._options = options);
+
+		this._process.stdout.setEncoding("utf8");
+		this._process.stderr.setEncoding("utf8");
+
+		this._process.on("exit", function(code)
+		{
+			console.log("subprocess '" + this.path + "' exited with: ", code);
+			ths.emit("exit");
+			if(ths._restartWhenDied)
+			{
+				console.log("Respawning sub-process in a moment...");
+				setTimeout(function()
+				{
+					ths.emit("restart");
+					ths.spawn();
+				}, 500);
+			}
+		});
+
+		this._process.stdout.on("data", function(data){ths.emit("stdout", data);});
+		this._process.stderr.on("data", function(data){ths.emit("stderr", data);});
+	},
+
+	write: function SubProcess_write(data)
+	{
+		if(this._process)
+			this._process.stdin.write(data);
+	},
+
+	quit: function SubProcess_quit()
+	{
+		if(this._process != null)
+		{
+			this._restartWhenDied = false;
+			this._process.kill();
+			this._process = null;
+		}
+	},
+
+	_process: null,
+	_path: null,
+	_args: null,
+	_options: null,
+	_restartWhenDied: null,
+});
+function SubProcess(path, args, options)
+{
+	EventEmitter.call(this);
+
+	this._restartWhenDied = true;
+	if(path)
+		this.spawn(path, args, options);
+}
 
 ////////////////////////////////////////////////////////////////
 
@@ -91,14 +174,14 @@ var _ =
 
 ////////////////////////////////////////////////////////////////
 
-_.extend(ParseError.prototype, Error);
+_extend(ParseError.prototype, Error);
 function ParseError(message, file)
 {
 	this.message = message;
 	this.file = file;
 }
 
-_.extend(FileError.prototype, Error);
+_extend(FileError.prototype, Error);
 function FileError(message, file)
 {
 	this.message = message;
@@ -188,7 +271,7 @@ Toolchain.prototype =
 				args.push("-D" + k + "=" + project.definitions[k]);
 		
 		//paths used to resolve complex referenced paths
-		pathsTable = _.extend({}, pathsTable);
+		pathsTable = _extend({}, pathsTable);
 		
 		//@@if verbose mode
 		//console.log("pathsTable=", pathsTable);
@@ -467,16 +550,16 @@ Targets.prototype =
 		if(!target)
 			return(undefined);
 		
-		target = _.extend({}, target);
+		target = _extend({}, target);
 		if(target["extends"])
 		{
 			var ancestor = this.resolve(target["extends"]);
 			if(ancestor)
-				_.extend(target, ancestor, {name: target.name});
+				_extend(target, ancestor, {name: target.name});
 		}
 		
 		if(moduleJson)
-			_.extend(target, moduleJson, {name: moduleJson.name});
+			_extend(target, moduleJson, {name: moduleJson.name});
 		
 		return(target);
 	}
@@ -628,9 +711,50 @@ function Compiler()
 	this.targets = new Targets();
 }
 
+///////////////////////////////////////////////////////////////
+
+GDBServerProcess.prototype = _extend(new EventEmitter(),
+{
+	onStatusReport: function GDBServerProcess_onStatusReport(data)
+	{
+		this._buffer += data;
+		
+		try
+		{
+			var status = JSON.parse(this._buffer);
+
+			this._buffer = "";
+			this.emit("status", status);
+		}
+		catch(e)
+		{
+			//try again when more data arrives
+		}
+	},
+
+	getStatus: function GDBServerProcess_getStatus()
+	{
+		this._serverProcess.write("?\n");	//provoke a status update
+	},
+
+	_buffer: null,
+	_serverProcess: null,
+});
+function GDBServerProcess()
+{
+	this._buffer = "";
+	this._serverProcess = new SubProcess(path.join(__dirname, Config.gdbServerName()), ["--interactive"]);
+	this._serverProcess.on("stdout", this.onStatusReport.bind(this));
+}
+
+///////////////////////////////////////////////////////////////
+
 return(
 {
-	Compiler: Compiler
+	Config: Config,
+	SubProcess: SubProcess,
+	Compiler: Compiler,
+	GDBServerProcess: GDBServerProcess
 });
 
 })();
@@ -639,6 +763,8 @@ return(
 
 if(require.main == module)
 {
+	process.stdin.on("data", function(){});	//keeps node alive
+
 	var compiler = new module.exports.Compiler();
 
 	var options =
@@ -694,7 +820,7 @@ if(require.main == module)
 	//@@asyncly determine the sdk path.
 	//  The platform (this), project and output paths are determined without lookup.
 	//  Module paths of dependencies are determined recursively.
-	var sdkPromise = moduleverse.findLocalInstallation(Config.baseDir(), "SDK");	//take the latest installed SDK
+	var sdkPromise = moduleverse.findLocalInstallation(Config.baseDir(), "logiblock", Config.sdkName());	//take the latest installed SDK
 
 	sdkPromise.then(function(sdkBase)
 	{
@@ -704,7 +830,7 @@ if(require.main == module)
 
 			var percent = "0.00", lastFile = "", blank = "                        ";
 
-			var downloadPromise = new moduleverse.ModuleUpdater(Config.baseDir(), "logiblock", Config.sdkName(), undefined, "SDK")
+			var downloadPromise = new moduleverse.ModuleUpdater(Config.baseDir(), "logiblock", Config.sdkName(), undefined)
 				.on("version", function(ver)
 				{
 					console.log("Downloading SDK version: " + ver);
@@ -817,7 +943,7 @@ if(require.main == module)
 
 
 					if(options.experimental)
-						console.log("\nNOTICE: you have specified an EXPERIMENTAL mode\n  that is known not to work on Windows.\n");
+						console.log("\nNOTICE: you have specified an EXPERIMENTAL mode\n  that is known not to work in some cases.\n");
 
 					var installPromise = Q.defer();
 					if(options.runDriver)
@@ -846,7 +972,7 @@ if(require.main == module)
 
 						driverProcess.stdout.on("data", function(d)
 						{
-							if(driverNoisy)
+							if(driverNoisy || (process.platform == "win32"))	//@@special exception for windows - always noisy
 								process.stdout.write(d);
 						});
 						driverProcess.stderr.on("data", function(d)
@@ -871,44 +997,54 @@ if(require.main == module)
 
 					if(options.runGDB)
 					{
-						var pty = require("./pty.js-prebuilt");
-						var keypress = require("keypress");
-						
-						installPromise.promise.then(function()
+						if(process.platform != "win32")
 						{
-							console.log("Starting GDB...");
-							var gdbProcess = pty.spawn(path.join(sdkBasePath, "bin", "arm-none-eabi-gdb"), [outputFile],
-							{
-								name: "xterm",
-								cwd: options.projectBase,
-								env: process.env
-							});
+							var pty = require("./pty.js-prebuilt");
+							var keypress = require("keypress");
 							
-							gdbProcess.on("data", function(d)
+							installPromise.promise.then(function()
 							{
-								process.stdout.write(d);
-							});
+								console.log("Starting GDB...");
+								var gdbProcess = pty.spawn(path.join(sdkBasePath, "bin", "arm-none-eabi-gdb"), [outputFile],
+								{
+									name: "xterm",
+									cwd: options.projectBase,
+									env: process.env
+								});
+								
+								gdbProcess.on("data", function(d)
+								{
+									process.stdout.write(d);
+								});
 
-							keypress(process.stdin);
-							process.stdin.on("keypress", function(ch, keypress)
-							{
-								gdbProcess.write((ch !== undefined)? ch : keypress.sequence);
-							});
-							process.stdin.setRawMode(true);
-							process.stdin.resume();
+								keypress(process.stdin);
+								process.stdin.on("keypress", function(ch, keypress)
+								{
+									gdbProcess.write((ch !== undefined)? ch : keypress.sequence);
+								});
+								process.stdin.setRawMode(true);
+								process.stdin.resume();
 
-							process.on("SIGINT", function()
-							{
-								gdbProcess.kill("SIGINT");	//send it right along
-								return(false);
+								process.on("SIGINT", function()
+								{
+									gdbProcess.kill("SIGINT");	//send it right along
+									return(false);
+								});
+								
+								gdbProcess.on("exit", function(code)
+								{
+									process.exit(code);
+								});
+								gdbProcess.write("target remote localhost:1033\n");	//give it a whirl on the most common port.
 							});
-							
-							gdbProcess.on("exit", function(code)
+						}
+						else
+							installPromise.promise.then(function()
 							{
-								process.exit(code);
+								//for win32, just run the server and instruct the user to invoke GDB manually
+								//  this is because the terminal pass-through isn't possible (or at least equivalent)
+								console.log("\nOn Windows, you will need to run GDB manually in a different window.");
 							});
-							gdbProcess.write("target remote localhost:1033\n");	//give it a whirl on the most common port.
-						});
 					}
 					else
 						installPromise.promise.then(function()
