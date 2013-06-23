@@ -19,7 +19,7 @@
 	],
 	"dependencies":
 	{
-		"moduleverse": ">=0.1.5",
+		"moduleverse": ">=0.1.6",
 		"q": "0.9.6",
 		"keypress": "0.2.0"
 	},
