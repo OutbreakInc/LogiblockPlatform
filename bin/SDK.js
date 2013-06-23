@@ -51,16 +51,6 @@ var Config =
 		case "win32":	return(path.join(process.env["HOMEDIR"], "Logiblock", "modules"));
 		}
 	},
-	platformName: function sdkName()
-	{
-		switch(process.platform)
-		{
-		case "darwin":	return("platform-mac64");
-		default:
-		case "linux":	return("platform-linux64");
-		case "win32":	return("platform-win32");
-		}
-	},
 	sdkName: function sdkName()
 	{
 		switch(process.platform)
@@ -92,21 +82,28 @@ SubProcess.prototype = _extend(new EventEmitter(),
 		var ths = this;
 		this.quit();	//terminate existing process
 
-		this._process = childProcess.spawn(this._path = path, this._args = args, this._options = options);
+		if(path)
+		{
+			this._path = path;
+			this._args = args || [];
+			this._options = options || {};
+		}
+
+		ths.emit("start");
+		this._process = childProcess.spawn(this._path, this._args, this._options);
 
 		this._process.stdout.setEncoding("utf8");
 		this._process.stderr.setEncoding("utf8");
 
 		this._process.on("exit", function(code)
 		{
-			console.log("subprocess '" + this.path + "' exited with: ", code);
+			console.log("subprocess '" + this._path + "' exited with: ", code);
 			ths.emit("exit");
 			if(ths._restartWhenDied)
 			{
 				console.log("Respawning sub-process in a moment...");
 				setTimeout(function()
 				{
-					ths.emit("restart");
 					ths.spawn();
 				}, 500);
 			}
@@ -143,8 +140,13 @@ function SubProcess(path, args, options)
 	EventEmitter.call(this);
 
 	this._restartWhenDied = true;
+
+	var ths = this;
 	if(path)
-		this.spawn(path, args, options);
+		process.nextTick(function()
+		{
+			ths.spawn(path, args, options);
+		});
 }
 
 ////////////////////////////////////////////////////////////////
@@ -719,16 +721,20 @@ GDBServerProcess.prototype = _extend(new EventEmitter(),
 	{
 		this._buffer += data;
 		
-		try
+		var events = this._buffer.trim().split("\n");
+		for(var i in events)
 		{
-			var status = JSON.parse(this._buffer);
+			try
+			{
+				var event = JSON.parse(events[i]);
 
-			this._buffer = "";
-			this.emit("status", status);
-		}
-		catch(e)
-		{
-			//try again when more data arrives
+				this.emit("status", event);
+			}
+			catch(e)
+			{
+				//try again when more data arrives
+				this._buffer = "";
+			}
 		}
 	},
 
@@ -742,6 +748,8 @@ GDBServerProcess.prototype = _extend(new EventEmitter(),
 });
 function GDBServerProcess()
 {
+	EventEmitter.call(this);
+	
 	this._buffer = "";
 	this._serverProcess = new SubProcess(path.join(__dirname, Config.gdbServerName()), ["--interactive"]);
 	this._serverProcess.on("stdout", this.onStatusReport.bind(this));
