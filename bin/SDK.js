@@ -70,6 +70,21 @@ var Config =
 		case "linux":	return("GalagoServer-linux64");
 		case "win32":	return("GalagoServer-win32.exe");
 		}
+	},
+	
+	env: function Config_env(pathsTable)
+	{
+		var e =
+		{
+			"PATH": path.join(pathsTable.sdk, "bin"),
+			"LD_PATH": path.join(pathsTable.sdk, "lib")
+		};
+		
+		if(process.platform == "linux")
+			e.LD_LIBRARY_PATH = [	path.join(pathsTable.sdk, "x86_64-unknown-linux-gnu/arm-none-eabi/lib"),
+									path.join(pathsTable.sdk, "libexec/gcc/arm-none-eabi/4.7.2")
+								].join(":");
+		return(e);
 	}
 };
 
@@ -301,14 +316,9 @@ Toolchain.prototype =
 		//@@if verbose mode
 		//console.log("compilerPath=", compilerPath, "args=", args);
 		
-		var separator = (process.platform == "win32")? ";" : ":";
 		var compiler = childProcess.spawn(compilerPath, args,
 		{
-			env:
-			{
-				"PATH": path.join(pathsTable.sdk, "bin") + separator + process.env["PATH"],
-				"LD_PATH": path.join(pathsTable.sdk, "lib")
-			}
+			env: Config.env(pathsTable)
 		});
 		compiler.stdout.setEncoding("utf8");
 		compiler.stderr.setEncoding("utf8");
@@ -388,11 +398,7 @@ Toolchain.prototype =
 		
 		var objcopy = childProcess.spawn(path.join(pathsTable.sdk, "bin", "arm-none-eabi-objcopy"), args,
 		{
-			env:
-			{
-				"PATH": path.join(pathsTable.sdk, "bin"),
-				"LD_PATH": path.join(pathsTable.sdk, "lib")
-			}
+			env: Config.env(pathsTable)
 		});
 		objcopy.stdout.setEncoding("utf8");
 		objcopy.stderr.setEncoding("utf8");
@@ -427,11 +433,7 @@ Toolchain.prototype =
 
 		var disassembler = childProcess.spawn(path.join(pathsTable.sdk, "bin", "arm-none-eabi-objdump"), args,
 		{
-			env:
-			{
-				"PATH": path.join(pathsTable.sdk, "bin"),
-				"LD_PATH": path.join(pathsTable.sdk, "lib")
-			}
+			env: Config.env(pathsTable)
 		});
 		disassembler.stdout.setEncoding("utf8");
 		disassembler.stderr.setEncoding("utf8");
@@ -460,11 +462,7 @@ Toolchain.prototype =
 		
 		var elfSize = childProcess.spawn(path.join(pathsTable.sdk, "bin", "arm-none-eabi-size"), args,
 		{
-			env:
-			{
-				"PATH": path.join(pathsTable.sdk, "bin"),
-				"LD_PATH": path.join(pathsTable.sdk, "lib")
-			}
+			env: Config.env(pathsTable)
 		});
 		elfSize.stdout.setEncoding("utf8");
 		elfSize.stderr.setEncoding("utf8");
