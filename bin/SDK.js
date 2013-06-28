@@ -720,20 +720,27 @@ GDBServerProcess.prototype = _extend(new EventEmitter(),
 		this._buffer += data;
 		
 		var events = this._buffer.trim().split("\n");
-		for(var i in events)
+		for(var i = 0; i < events.length; i++)
 		{
+			var event;
 			try
 			{
-				var event = JSON.parse(events[i]);
-
-				this.emit("status", event);
+				event = JSON.parse(events[i]);
 			}
 			catch(e)
 			{
-				//try again when more data arrives
-				this._buffer = "";
+				//if the last element is truncated, try again when more data arrives
+				if(i == (events.length - 1))
+				{
+					this._buffer = events[i];
+					return;
+				}
+				else	//else it was corrupt (extremely rare), simply ignore the message.
+					console.log("Undecipherable message: ", e, events[i]);
 			}
+			this.emit("event", event);
 		}
+		this._buffer = "";
 	},
 
 	getStatus: function GDBServerProcess_getStatus()
