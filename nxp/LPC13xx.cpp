@@ -234,7 +234,8 @@ extern "C" void STARTUP INTERRUPT ignoreInterrupt(void)
 {
 }
 
-void* __dso_handle = 0;
+extern void* __attribute__ ((weak, alias("__dso_handle_nostdlib"))) __dso_handle;
+void* __dso_handle_nostdlib = 0;
 
 extern "C" int __aeabi_atexit(void* object, void (*destroyer)(void*), void* dso_handle)
 {

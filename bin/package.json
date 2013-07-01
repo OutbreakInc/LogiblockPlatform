@@ -1,6 +1,6 @@
 {
 	"name": "logiblock-sdk",
-	"version": "0.9.12",
+	"version": "0.9.13",
 	"description": "Logiblock.com SDK driver",
 	"main": "SDK.js",
 	"scripts":

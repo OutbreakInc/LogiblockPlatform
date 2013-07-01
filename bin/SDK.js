@@ -272,7 +272,7 @@ Toolchain.prototype =
 		
 		//gaunt
 		if(project.settings && project.settings.gaunt)
-			args.push("-nostdlib");
+			args.push("-nostdlib", "-nodefaultlibs");
 		
 		//debugging
 		if(project.settings && project.settings.debug)

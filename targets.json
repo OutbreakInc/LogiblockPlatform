@@ -6,7 +6,6 @@
 			
 			"otherCompilerFlags":
 			[
-				"-nodefaultlibs",
 				"--function-sections",
 				"-fno-exceptions",
 				"-Wl,--gc-sections"
