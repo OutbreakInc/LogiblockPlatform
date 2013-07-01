@@ -1,6 +1,6 @@
 {
 	"name":"platform",
-	"version":"0.9.13",
+	"version":"0.9.14",
 	"tags":["galago","platform","linker","scripts","debugger","moduleverse"],
 	"description":"Product platform layer, gcc toolchain driver and Moduleverse interface for the Logiblock IDE.",
 	"details":"This layer is responsible for parts of the development tools that are not built-in to a pure gcc toolchain and are not part of a device-independent IDE, for example the start-up code, linker scripts and low-level headers. Mac, Windows, Linux (64-bit Intel)."
