@@ -103,6 +103,10 @@ struct TaskUnion
 {
 	Task			self;
 	unsigned short	count;
+	
+					TaskUnion(unsigned short initialCount = 2):
+						count(initialCount)
+						{}
 };
 
 void	TaskUnion_onCompletion(void* context, Task t, bool success)
@@ -113,21 +117,15 @@ void	TaskUnion_onCompletion(void* context, Task t, bool success)
 	if(!success)
 	{
 		if(--u->count == 0)
-		{
-			//delete[] u->tasks;
 			delete u;
-		}
+		
 		system.completeTask(self, false);
 	}
-	else
+	else if(--u->count == 0)
 	{
-		if(--u->count == 0)
-		{
-			//delete[] u->tasks;
-			delete u;
-			
-			system.completeTask(self, true);
-		}
+		delete u;
+		
+		system.completeTask(self, true);
 	}
 }
 
