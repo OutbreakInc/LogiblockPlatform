@@ -42,7 +42,7 @@ void	memcpy(void* dest, void const* source, size_t length)
 }
 
 ////////////////////////////////////////////////////////////////
-//
+// NumberFormatter formats numbers into text
 
 class NumberFormatter
 {
@@ -89,7 +89,7 @@ public:
 };
 
 ////////////////////////////////////////////////////////////////
-//
+// Tasks are promises for functionality
 
 Task&					Task::operator =(Task const& t)
 {
@@ -148,7 +148,7 @@ void				Task::release(InternalTask* t)	//static
 }
 
 ////////////////////////////////////////////////////////////////
-//
+// CircularBuffer is a circular buffer
 
 		CircularBuffer::CircularBuffer(int size)
 {
@@ -208,7 +208,8 @@ int		CircularBuffer::bytesFree(void) const
 
 
 ////////////////////////////////////////////////////////////////
-// Buffer
+// Buffer is a reference-counted mutable string of data perfect for
+//   sharing with asynchronous APIs
 
 Buffer&					Buffer::operator =(Buffer const& b)
 {
@@ -478,7 +479,7 @@ void					Buffer::release(InternalBuffer* b) //static
 }
 
 ////////////////////////////////////////////////////////////////
-// IOCore
+// IOCore is an internal class for managing IO activity
 
 void	System_onSysTickInterruptStub(void);
 
@@ -952,9 +953,7 @@ void			System::free(void* allocation)
 
 
 ////////////////////////////////////////////////////////////////
-// Tasks
-
-//Tasks are promises
+// Tasks, continued
 
 namespace Galago {
 
@@ -1433,7 +1432,7 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 }
 
 ////////////////////////////////////////////////////////////////
-//
+// Hardware SPI, exposed on the SCK, MISO and MOSI pins
 
 void	IO_onSPIInterrupt(void);
 
@@ -1606,7 +1605,7 @@ INTERRUPT void		IRQ_SPI0(void)
 }
 
 ////////////////////////////////////////////////////////////////
-//
+// Hardware UART, exposed on the TXD and RXD pins
 
 void	IO_onUARTInterrupt(void);
 
@@ -1823,7 +1822,7 @@ Task		IO::UART::write(byte const* s, int length)
 }
 
 ////////////////////////////////////////////////////////////////
-// I2C
+// Hardware I2C, exposed on the SCL and SDA pins
 
 bool				IO_I2C_repeatedStart(IOCore::I2CTask* currentTask)
 {

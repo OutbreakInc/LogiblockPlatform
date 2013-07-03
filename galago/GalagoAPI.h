@@ -236,7 +236,7 @@ public:
 		bool			bytesAvailable(void) const;
 		
 		inline Task		read(int length, Buffer bytesReadBack = Buffer(), byte writeChar = 0)	{return(write(writeChar, length, bytesReadBack));}
-		inline Task		read(int length, Buffer bytesReadBack = Buffer(), unsigned short writeChar = 0)	{return(write(writeChar, length, bytesReadBack));}
+		inline Task		read(int length, Buffer bytesReadBack, unsigned short writeChar)		{return(write(writeChar, length, bytesReadBack));}
 		
 		inline Task		readAndWrite(char const* s, int length, Buffer bytesReadBack = Buffer())		{return(write((byte const*)s, length, bytesReadBack));}
 		inline Task		readAndWrite(byte const* s, int length, Buffer bytesReadBack = Buffer())		{return(write(s, length, bytesReadBack));}
