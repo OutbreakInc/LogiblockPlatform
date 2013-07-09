@@ -84,6 +84,8 @@
 			IOConfigPIO2_6_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO2_6_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO2_6_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO2_0 =		REGISTER_ADDRESS(0x40044008);
 		enum IOConfigPIO2_0
@@ -97,6 +99,8 @@
 			IOConfigPIO2_0_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO2_0_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO2_0_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO0_0 =		REGISTER_ADDRESS(0x4004400C);
 		enum IOConfigPIO0_0
@@ -109,6 +113,8 @@
 			IOConfigPIO0_0_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO0_0_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO0_0_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO0_1 =		REGISTER_ADDRESS(0x40044010);
 		enum IOConfigPIO0_1
@@ -122,6 +128,8 @@
 			IOConfigPIO0_1_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO0_1_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO0_1_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO1_8 =		REGISTER_ADDRESS(0x40044014);
 		enum IOConfigPIO1_8
@@ -134,6 +142,8 @@
 			IOConfigPIO1_8_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO1_8_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO1_8_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO0_2 =		REGISTER_ADDRESS(0x4004401C);
 		enum IOConfigPIO0_2
@@ -147,6 +157,8 @@
 			IOConfigPIO0_2_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO0_2_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO0_2_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO2_7 =		REGISTER_ADDRESS(0x40044020);
 		enum IOConfigPIO2_7
@@ -156,6 +168,8 @@
 			IOConfigPIO2_7_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO2_7_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO2_7_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO2_8 =		REGISTER_ADDRESS(0x40044024);
 		enum IOConfigPIO2_8
@@ -165,6 +179,8 @@
 			IOConfigPIO2_8_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO2_8_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO2_8_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO2_1 =		REGISTER_ADDRESS(0x40044028);
 		enum IOConfigPIO2_1
@@ -178,6 +194,8 @@
 			IOConfigPIO2_1_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO2_1_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO2_1_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO0_3 =		REGISTER_ADDRESS(0x4004402C);
 		enum IOConfigPIO0_3
@@ -187,6 +205,8 @@
 			IOConfigPIO0_3_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO0_3_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO0_3_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO0_4 =		REGISTER_ADDRESS(0x40044030);
 		enum IOConfigPIO0_4
@@ -219,6 +239,8 @@
 			IOConfigPIO1_9_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO1_9_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO1_9_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO3_4 =		REGISTER_ADDRESS(0x4004403C);
 		enum IOConfigPIO3_4
@@ -228,6 +250,8 @@
 			IOConfigPIO3_4_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO3_4_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO3_4_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO2_4 =		REGISTER_ADDRESS(0x40044040);
 		enum IOConfigPIO2_4
@@ -237,6 +261,8 @@
 			IOConfigPIO2_4_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO2_4_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO2_4_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO2_5 =		REGISTER_ADDRESS(0x40044044);
 		enum IOConfigPIO2_5
@@ -246,6 +272,8 @@
 			IOConfigPIO2_5_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO2_5_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO2_5_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO3_5 =		REGISTER_ADDRESS(0x40044048);
 		enum IOConfigPIO3_5
@@ -255,6 +283,8 @@
 			IOConfigPIO3_5_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO3_5_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO3_5_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO0_6 =		REGISTER_ADDRESS(0x4004404C);
 		enum IOConfigPIO0_6
@@ -267,6 +297,8 @@
 			IOConfigPIO0_6_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO0_6_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO0_6_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO0_7 =		REGISTER_ADDRESS(0x40044050);
 		enum IOConfigPIO0_7
@@ -279,6 +311,8 @@
 			IOConfigPIO0_7_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO0_7_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO20_7_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO2_9 =		REGISTER_ADDRESS(0x40044054);
 		enum IOConfigPIO2_9
@@ -288,6 +322,8 @@
 			IOConfigPIO2_9_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO2_9_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO2_9_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO2_10 =		REGISTER_ADDRESS(0x40044058);
 		enum IOConfigPIO2_10
@@ -297,6 +333,8 @@
 			IOConfigPIO2_10_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO2_10_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO2_10_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO2_2 =		REGISTER_ADDRESS(0x4004405C);
 		enum IOConfigPIO2_2
@@ -310,6 +348,8 @@
 			IOConfigPIO2_2_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO2_2_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO2_2_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO0_8 =		REGISTER_ADDRESS(0x40044060);
 		enum IOConfigPIO0_8
@@ -323,6 +363,8 @@
 			IOConfigPIO0_8_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO0_8_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO0_8_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO0_9 =		REGISTER_ADDRESS(0x40044064);
 		enum IOConfigPIO0_9
@@ -336,6 +378,8 @@
 			IOConfigPIO0_9_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO0_9_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO0_9_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO0_10 =		REGISTER_ADDRESS(0x40044068);
 		enum IOConfigPIO0_10
@@ -350,6 +394,8 @@
 			IOConfigPIO0_10_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO0_10_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO0_10_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO1_10 =		REGISTER_ADDRESS(0x4004406C);
 		enum IOConfigPIO1_10
@@ -366,6 +412,8 @@
 			
 			IOConfigPIO1_10_AnalogMode		=	(0x00 << 7),
 			IOConfigPIO1_10_DigitalMode		=	(0x01 << 7),
+			
+			IOConfigPIO1_10_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO2_11 =		REGISTER_ADDRESS(0x40044070);
 		enum IOConfigPIO2_11
@@ -378,6 +426,8 @@
 			IOConfigPIO2_11_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO2_11_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO2_11_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO0_11 =		REGISTER_ADDRESS(0x40044074);
 		enum IOConfigPIO0_11
@@ -395,6 +445,8 @@
 			
 			IOConfigPIO0_11_AnalogMode		=	(0x00 << 7),
 			IOConfigPIO0_11_DigitalMode		=	(0x01 << 7),
+			
+			IOConfigPIO0_11_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO1_0 =		REGISTER_ADDRESS(0x40044078);
 		enum IOConfigPIO1_0
@@ -412,6 +464,8 @@
 			
 			IOConfigPIO1_0_AnalogMode		=	(0x00 << 7),
 			IOConfigPIO1_0_DigitalMode		=	(0x01 << 7),
+			
+			IOConfigPIO1_0_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO1_1 =		REGISTER_ADDRESS(0x4004407C);
 		enum IOConfigPIO1_1
@@ -429,6 +483,8 @@
 			
 			IOConfigPIO1_1_AnalogMode		=	(0x00 << 7),
 			IOConfigPIO1_1_DigitalMode		=	(0x01 << 7),
+			
+			IOConfigPIO1_1_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO1_2 =		REGISTER_ADDRESS(0x40044080);
 		enum IOConfigPIO1_2
@@ -446,6 +502,8 @@
 			
 			IOConfigPIO1_2_AnalogMode		=	(0x00 << 7),
 			IOConfigPIO1_2_DigitalMode		=	(0x01 << 7),
+			
+			IOConfigPIO1_2_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO3_0 =		REGISTER_ADDRESS(0x40044084);
 		enum IOConfigPIO3_0
@@ -458,6 +516,8 @@
 			IOConfigPIO3_0_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO3_0_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO3_0_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO3_1 =		REGISTER_ADDRESS(0x40044088);
 		enum IOConfigPIO3_1
@@ -470,6 +530,8 @@
 			IOConfigPIO3_1_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO3_1_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO3_1_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO2_3 =		REGISTER_ADDRESS(0x4004408C);
 		enum IOConfigPIO2_3
@@ -483,6 +545,8 @@
 			IOConfigPIO2_3_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO2_3_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO2_3_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO1_3 =		REGISTER_ADDRESS(0x40044090);
 		enum IOConfigPIO1_3
@@ -500,6 +564,8 @@
 			
 			IOConfigPIO1_3_AnalogMode		=	(0x00 << 7),
 			IOConfigPIO1_3_DigitalMode		=	(0x01 << 7),
+			
+			IOConfigPIO1_3_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO1_4 =		REGISTER_ADDRESS(0x40044094);
 		enum IOConfigPIO1_4
@@ -516,6 +582,8 @@
 			
 			IOConfigPIO1_4_AnalogMode		=	(0x00 << 7),
 			IOConfigPIO1_4_DigitalMode		=	(0x01 << 7),
+			
+			IOConfigPIO1_4_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO1_11 =		REGISTER_ADDRESS(0x40044098);
 		enum IOConfigPIO1_11
@@ -531,6 +599,8 @@
 			
 			IOConfigPIO1_11_AnalogMode		=	(0x00 << 7),
 			IOConfigPIO1_11_DigitalMode		=	(0x01 << 7),
+			
+			IOConfigPIO1_11_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO3_2 =		REGISTER_ADDRESS(0x4004409C);
 		enum IOConfigPIO3_2
@@ -543,6 +613,8 @@
 			IOConfigPIO3_2_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO3_2_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO3_2_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO1_5 =		REGISTER_ADDRESS(0x400440A0);
 		enum IOConfigPIO1_5
@@ -556,6 +628,8 @@
 			IOConfigPIO1_5_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO1_5_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO1_5_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO1_6 =		REGISTER_ADDRESS(0x400440A4);
 		enum IOConfigPIO1_6
@@ -569,6 +643,8 @@
 			IOConfigPIO1_6_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO1_6_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO1_6_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO1_7 =		REGISTER_ADDRESS(0x400440A8);
 		enum IOConfigPIO1_7
@@ -582,6 +658,8 @@
 			IOConfigPIO1_7_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO1_7_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO1_7_OpenDrain		=	(0x01 << 10),
 		};
 	REGISTER	IOConfigPIO3_3 =		REGISTER_ADDRESS(0x400440AC);
 		enum IOConfigPIO3_3
@@ -594,6 +672,8 @@
 			IOConfigPIO3_3_Repeat 			=	(0x03 << 3),
 			
 			IOConfigPIO3_3_Hysteresis		=	(0x01 << 5),
+			
+			IOConfigPIO3_3_OpenDrain		=	(0x01 << 10),
 		};
 
 	REGISTER	IOConfigSCKLocation =	REGISTER_ADDRESS(0x400440B0);

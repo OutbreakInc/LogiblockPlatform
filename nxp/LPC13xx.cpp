@@ -209,7 +209,43 @@ extern "C" void STARTUP __attribute__((naked)) _gaunt_start(void)
 
 extern "C" void STARTUP INTERRUPT __attribute__((naked)) _HardFault(void)
 {
-	//...
+	//according to the ARM ARMv7-M A.R.M sec. B1-22, the NVIC stores the following
+	//  values in these places when vectoring to a handler:
+	//
+	//  $sp[0] = $r0
+	//  $sp[1] = $r1
+	//  $sp[2] = $r2
+	//  $sp[3] = $r3
+	//  $sp[4] = $r12
+	//  $sp[5] = $lr
+	//  $sp[6] = (returnAddress)	<- in "precise" cases, the faulting address, else one instruction past it*
+	//  $sp[7] = $cpsr
+	
+	//*(im)precision due to the nature of the instruction, execution pipeline and bus activity
+	
+	//moreover, these values are important:
+	//  $sp = ($sp_at_fault - 32)
+	//  $cpsr & 0xFF = (fault code)
+	//  $lr = 0xFFFFFFF9, or in some cases 0xFFFFFFF1 or 0xFFFFFFFD
+	
+	//a fault occurred at or near $sp[6]
+	
+	unsigned int volatile register faultPC;
+	unsigned int volatile register faultLR;
+	
+	__asm__ volatile (
+	"ldr	%0, 	[sp, #24]			\n"
+	"ldr	%1, 	[sp, #20]			\n"
+	: "=r" (faultPC), "=r" (faultLR)
+	:
+	: );
+	
+	(void)faultPC;
+	(void)faultLR;
+	
+	__asm__ volatile (
+	"bx		lr							\n"
+	);
 }
 
 /*

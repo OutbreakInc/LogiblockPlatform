@@ -157,16 +157,17 @@ public:
 		//not all parts feature these pin modes
 		typedef enum
 		{
-			Normal,
-			PullUp,
-			PullDown,
+			Normal		= 0,
+			PullDown	= 1,
+			PullUp		= 2,
 			
-			Sensitive,	//Sensistive mode implies hysteresis/Schmitt-triggers are disabled for the pin
+			Sensitive	= 4,	//Sensistive mode implies hysteresis/Schmitt-triggers are disabled for the pin
 
 			//OpenDrain means a logic high results in a high-impedance (un-driven) pin
 			//  and a logic low drives the pin low
-			OpenDrain,
-		} Feature;
+			OpenDrain	= 8,
+		} FeatureSetting;
+		typedef int Feature;
 		
 		inline			Pin(void): v(~0)					{}
 		
@@ -182,10 +183,10 @@ public:
 		unsigned int	analogValue(void) const;
 		void			write(int value);
 		
-		inline	void	setOutput(void)		{setMode(DigitalOutput);}
-		inline	void	setInput(void)		{setMode(DigitalInput);}
-		inline	void	setAnalog(void)		{setMode(AnalogInput);}
-		inline	void	setPWM(void)		{setMode(PWM);}
+		inline	void	setOutput(Feature feature = Normal)		{setMode(DigitalOutput, feature);}
+		inline	void	setInput(Feature feature = PullUp)		{setMode(DigitalInput, feature);}
+		inline	void	setAnalog(Feature feature = Sensitive)	{setMode(AnalogInput, feature);}
+		inline	void	setPWM(Feature feature = Normal)		{setMode(PWM, feature);}
 		
 		void			setMode(Mode mode, Feature feature = Normal);
 		

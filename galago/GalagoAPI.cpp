@@ -1303,7 +1303,7 @@ static unsigned char const IO_ioConfigForPin[] =
 
 int				IO::Pin::read(void) const
 {
-	return(PIN_GPIO_DATA_PORT(PIN_IO_PORT(v))[1 << PIN_IO_PIN_NUM(v)]);
+	return(!!PIN_GPIO_DATA_PORT(PIN_IO_PORT(v))[1 << PIN_IO_PIN_NUM(v)]);
 }
 void			IO::Pin::write(int value)
 {
@@ -1363,6 +1363,15 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 	if(mode == IO::Pin::Default)
 		mode = (id == PIN_LED)? IO::Pin::DigitalOutput : IO::Pin::DigitalInput;
 	
+	unsigned int newValue = *pinConfig & ~0x43F;	//clear the mode, pullup/down state, hysteresis and pseudo-open-drain flags
+	
+	newValue |= ((feature & 3) << 3);
+	if(!(feature & IO::Pin::Sensitive))
+		newValue |= (1 << 5);	//sensitive is defined as !hysteresis
+	
+	if(!(feature & IO::Pin::OpenDrain))
+		newValue |= (1 << 10);
+	
 	switch(mode)
 	{
 	case IO::Pin::DigitalInput:
@@ -1370,7 +1379,6 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 		{
 			if(kPinSupportsGPIO & mask)
 			{
-				unsigned int newValue = *pinConfig & ~0x7;
 				if(kPinSupportsADC & mask)	//analog-capable pins need to have their digital I/O (re)enabled
 					newValue |= 0x80;
 				
@@ -1388,45 +1396,46 @@ void			IO::Pin::setMode(Mode mode, Feature feature)
 	case IO::Pin::AnalogInput:
 		if(kPinSupportsADC & mask)
 		{
-			*pinConfig = (*pinConfig & ~0x87) | ((kPinFunc1IsADC & mask)? 1 : 2);	//the additional 0x80 disables digital I/O too
+			*pinConfig = (newValue & ~0x80) | ((kPinFunc1IsADC & mask)? 1 : 2);	//the additional 0x80 disables digital I/O too
 		}
 		break;
 	case IO::Pin::SPI:
 		if(kPinSupportsSPI & mask)
 		{
-			*pinConfig = (*pinConfig & ~0x7) | ((id == PIN_SCK)? 2 : 1);
+			*pinConfig = newValue | ((id == PIN_SCK)? 2 : 1);
 		}
 		break;
 	case IO::Pin::I2C:
 		if(kPinSupportsI2C & mask)
 		{
-			*pinConfig = (*pinConfig & ~0x7) | 1;
+			*pinConfig = newValue | 1;
 		}
 		break;
 	case IO::Pin::UART:
 		if(kPinSupportsUART & mask)
 		{
-			*pinConfig = (*pinConfig & ~0x7) | 1;
+			*pinConfig = newValue | 1;
 		}
 		break;
 	case IO::Pin::PWM:
 		if(kPinSupportsPWM & mask)
 		{
-			if(id == PIN_P5)	*pinConfig = (*pinConfig & ~0x7) | 1;
-			else				*pinConfig = (*pinConfig & ~0x7) | ((kPinFunc2IsPWM & mask)? 2 : 3);
+			if(id == PIN_P5)	*pinConfig = newValue | 1;
+			else				*pinConfig = newValue | ((kPinFunc2IsPWM & mask)? 2 : 3);
 		}
 		break;
 
 	case IO::Pin::Reset:
 		if(id == PIN_P0)	//only gpio0.0 has reset ability
 			//it so happens mode 0 is reset on gpio0.0, so leave it
-			*pinConfig &= ~0x7;
+			*pinConfig = newValue;
 		break;
 	case IO::Pin::ClockOutput:
 		if(id == PIN_P1)
-			*pinConfig = (*pinConfig & ~0x7) | 1;
+			*pinConfig = newValue | 1;
 		break;
 	case IO::Pin::Manual:
+		//do nothing because this implementation is stateless anyway
 		break;
 	}
 }
