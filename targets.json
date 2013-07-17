@@ -26,21 +26,7 @@
 			"extends": "CortexM3",
 			"files":
 			[
-				{
-					"base": "platform",
-					"dir": "nxp",
-					"name": "LPC13xx.cpp"
-				}
 			],
-			"include":
-			[
-				{"base": "platform", "dir": "nxp"}
-			],
-			"linkFile": {"base": "platform", "dir": "nxp", "name": "LPC1343.x"},
-			"definitions":
-			{
-				"PART": "lpc1343"
-			},
 			"limits":
 			{
 				"flash": 32768,
@@ -57,15 +43,10 @@
 			"extends": "LPC1343",
 			"files":
 			[
-				{"base": "platform", "dir": "galago", "name": "GalagoAPI.cpp"}
 			],
 			"otherCompilerFlags":
 			[
 				"-Os"
-			],
-			"include":
-			[
-				{"base": "platform", "dir": "galago"}
 			]
 		}
 	]

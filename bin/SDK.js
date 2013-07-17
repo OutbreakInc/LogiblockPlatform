@@ -4,8 +4,11 @@ var fs = require("fs");
 var path = require("path");
 var childProcess = require("child_process");
 var moduleverse = require("moduleverse");
-var	Q = require("q");
+var	Q = require("noq").noTry;
 var EventEmitter = require("events").EventEmitter;
+var crypto = require("crypto");
+
+var verbose = false;
 
 ////////////////////////////////////////////////////////////////
 
@@ -27,6 +30,28 @@ function _extend(obj)
 	return(obj);
 }
 
+function pathExtensionSwap(p, newExt)
+{
+	return(p.substr(0, p.length - path.extname(p).length) + newExt);
+}
+
+//why require("mkdirp") when you can implement it this elegantly?
+function mkdirp(p, callback)
+{
+	var self = arguments.callee;
+	fs.exists(p, function(exists)
+	{
+		if(!exists)
+			self(path.dirname(p), function(err)	//if it doesn't exist, ensure the parent does
+			{
+				if(err)	callback(err);
+				else	fs.mkdir(p, callback);	//if the parent exists, create the child
+			});
+		else
+			callback();
+	});
+};
+
 ////////////////////////////////////////////////////////////////
 
 var Config =
@@ -35,11 +60,15 @@ var Config =
 	{
 		switch(process.platform)
 		{
-		case "darwin":	return(path.join(process.env["HOME"], "Library/Application Support/Logiblock/modules"));
+		case "darwin":	return(path.join(process.env["HOME"], "Library/Application Support/Logiblock"));
 		default:
-		case "linux":	return(path.join(process.env["HOME"], ".logiblock/modules"));
-		case "win32":	return(path.join(process.env["APPDATA"], "Logiblock", "modules"));
+		case "linux":	return(path.join(process.env["HOME"], ".logiblock"));
+		case "win32":	return(path.join(process.env["APPDATA"], "Logiblock"));
 		}
+	},
+	coreModulesDir: function coreModulesDir()
+	{
+		return(path.join(this.baseDir(), "modules"));	
 	},
 	modulesDir: function modulesDir()
 	{
@@ -50,6 +79,10 @@ var Config =
 		case "linux":	return(path.join(process.env["HOME"], "logiblock/modules"));
 		case "win32":	return(path.join(process.env["HOMEDIR"], "Logiblock", "modules"));
 		}
+	},
+	cacheDir: function cacheDir()
+	{
+		return(path.join(this.baseDir(), "cache"));
 	},
 	sdkName: function sdkName()
 	{
@@ -212,13 +245,15 @@ Module.prototype =
 	rootPath: undefined,
 	moduleJson: undefined,
 	
-	open: function(callback)
+	open: function()	//promise
 	{
+		var promise = Q.defer();
+
 		var pJSONPath = path.join(this.rootPath, "module.json");
 		fs.readFile(pJSONPath, "utf8", function(err, data)
 		{
 			if(err)
-				return(callback(new FileError("Could not open module JSON file", pJSONPath)));
+				return(promise.reject(new FileError("Could not open module JSON file", pJSONPath)));
 			
 			try
 			{
@@ -226,20 +261,22 @@ Module.prototype =
 			}
 			catch(e)
 			{
-				console.log("parse error: ", e);
-				return(callback(new ParseError("Could not parse module JSON file", pJSONPath)));
+				//console.log("Could not parse module.json file at " + pJSONPath + ": ", e);
+				return(promise.reject(new ParseError("Could not parse module JSON file", pJSONPath)));
 			}
 			
-			callback(undefined, this.moduleJson);
+			promise.resolve(this.moduleJson);
 			
 		}.bind(this));
+
+		return(promise.promise);
 	},
 	
 	exists: function()
 	{
 		return(moduleJson != undefined);
 	},
-}
+};
 function Module(rootPath)
 {
 	this.rootPath = rootPath;
@@ -253,22 +290,23 @@ Toolchain.prototype =
 		paths.forEach(function(source)
 		{
 			var filePath = [];
-			if(basesTable[source.base])	filePath.push(basesTable[source.base]);
-			else						filePath.push(basesTable[defaultBase]);
-			if(source.dir)				filePath.push(source.dir);
-			if(source.name)				filePath.push(source.name);	//else it's a directory
+			if(source.base == "abs")			filePath.push(source.name);	//absolute path
+			else
+			{
+				if(basesTable[source.base])		filePath.push(basesTable[source.base]);
+				else							filePath.push(basesTable[defaultBase]);
+				if(source.dir)					filePath.push(source.dir);
+				if(source.name)					filePath.push(source.name);	//else it's a directory
+			}
 			
-			resolvedPaths.push(path.join.apply(path, filePath));
+			resolvedPaths.push(_extend({}, source, {base: "abs", dir: undefined, name: path.join.apply(path, filePath)}));
 		});
 		return(resolvedPaths);
 	},
 	
-	compile: function(pathsTable, output, project, callback)
+	compile: function(pathsTable, output, project, isRootModule)	//promised
 	{
-		var args =
-		[
-			"-o", output,
-		];
+		var ths = this, promise = Q.defer(), args = [], fingerprint = fingerprintObject(project);
 		
 		//gaunt
 		if(project.settings && project.settings.gaunt)
@@ -290,96 +328,159 @@ Toolchain.prototype =
 		//paths used to resolve complex referenced paths
 		pathsTable = _extend({}, pathsTable);
 		
-		//@@if verbose mode
-		//console.log("pathsTable=", pathsTable);
+		if(verbose)
+			console.log("arguments=", pathsTable, output, project);
 		
-		if(project.linkFile)
+		//only for the root module (where any linking occurs) include the linkFile, if present
+		if(isRootModule && project.linkFile)
 			this.resolvePaths([project.linkFile], pathsTable, "project").forEach(function(path)
 			{
-				args.push("-T", path);
+				args.push("-T", path.name);
 			});
 		
 		//resolve and add include files
 		if(project.include)
 			this.resolvePaths(project.include, pathsTable, "project").forEach(function(path)
 			{
-				args.push("-I", path);
+				args.push("-I", path.name);
 			});
 		
 		//resolve and add sources
-		//@@check existence of .files property, error in a helpful way if missing
-		args = args.concat(this.resolvePaths(project.files, pathsTable, "project"));
-		
+
+		if(!project.files || (project.files.length == 0))
+			return(promise.reject(new Error("Your project does not contain any source files. Please see http://logiblock.com/help for project file instructions.")))
+
+		var sources = project.files.filter(function(f)
+		{
+			return(f.name && f.name.match(/\.(c|cpp|cc|cxx|s|S|a)$/));
+		});
+
+		if(!sources || (sources.length == 0))
+			return(promise.reject(new Error("Your project does not contain any buildable source code. Please see http://logiblock.com/help for project file instructions.")))
+
+		sources = this.resolvePaths(sources, pathsTable, "project").map(function(s)	//resolve the sources
+		{
+			return(s.name);
+		});
+
 		//compile!
 		var compilerPath = path.join(pathsTable.sdk, "bin", "arm-none-eabi-g++");
 		
-		//@@if verbose mode
-		//console.log("compilerPath=", compilerPath, "args=", args);
-		
-		var compiler = childProcess.spawn(compilerPath, args,
+		if(verbose)
+			console.log("compilerPath=", compilerPath, "args=", args, "sources=", sources);
+
+		var objectFiles = [];
+
+		//asyncly loop through sources, building them one-at-a-time, storing the built object-file paths and collecting errors
+		(function()
 		{
-			env: Config.env(pathsTable)
-		});
-		compiler.stdout.setEncoding("utf8");
-		compiler.stderr.setEncoding("utf8");
-		
-		var compileErrors = [];
-		var stdout = "", stderr = "";
-		
-		compiler.stdout.on("data", function(data)
-		{
-			stdout += data;
-		}.bind(this));
-		compiler.stderr.on("data", function(data)
-		{
-			stderr += data;
-		}.bind(this));
-		compiler.on("exit", function(returnCode)
-		{
-			if(stdout.length > 0)
-				console.log("stdout: ", stdout);
-			
-			if(stderr.length > 0)
-				console.log("stderr: ", stderr);
-			
-			//for each line of output, see if it matches the way GCC formats an error
-			stderr.split("\n").forEach(function(line)
+			var next = arguments.callee,
+				currentArgs = args.slice(0);	//take the base args as a starting point
+
+			if(isRootModule)
 			{
-				//this regex looks for errors like:
-				//	"./example.cpp:74:2: error: 'mistake' was not declared in this scope"
-				//	"./example.cpp:93: undefined reference to `mistake'"
-				//and breaks it into:
-				//	match[1]: "./example.cpp"
-				//	match[2]: "74"
-				//	match[3]: "2"
-				//	match[4]: " error: 'mistake' was not declared in this scope"
+				//if we're building the root, it's ok to build and link everything in one go.
+				currentArgs.push("-o", output);	//generate the ELF
+				currentArgs = currentArgs.concat(sources);
+				sources = [];
+			}
+			else
+			{
+				var source = sources.shift(),
+					objectFilePath = path.join(Config.cacheDir(), pathExtensionSwap(path.basename(source), "-" + fingerprint + ".o"));
+
+				//add "-o <objectFile> -c <currentSourceFile>" to a copy of the base args
+				currentArgs.push("-o", objectFilePath, "-c", source);
+				objectFiles.push(objectFilePath);
+			}
+
+			if(verbose)
+				console.log("build command line:", compilerPath + " " + currentArgs.join(" "), "\n");
+			
+			var compiler = childProcess.spawn(compilerPath, currentArgs,
+			{
+				env: Config.env(pathsTable)
+			});
+			compiler.stdout.setEncoding("utf8");
+			compiler.stderr.setEncoding("utf8");
+			
+			var compileErrors = [];
+			var stdout = "", stderr = "";
+			
+			compiler.stdout.on("data", function(data)
+			{
+				stdout += data;
+			}.bind(this));
+			compiler.stderr.on("data", function(data)
+			{
+				stderr += data;
+			}.bind(this));
+			compiler.on("exit", function(returnCode)
+			{
+				if(stdout.length > 0)
+					console.log("stdout: ", stdout);
 				
-				var m = line.match(/^(.*?):(\d+):(\d*):{0,1}(.*)/);
-				if(m)
+				if(stderr.length > 0)
+					console.log("stderr: ", stderr);
+				
+				//for each line of output, see if it matches the way GCC formats an error
+				stderr.split("\n").forEach(function(line)
 				{
-					var compileError = {raw: line, file: m[1], line: m[2], charIndex: m[3] || 0, err: m[4].trim()};
-					var last = (compileErrors.length > 0) && compileErrors[compileErrors.length - 1];
-					if(		last && (last.file == compileError.file) && (last.line == compileError.line)
-							&& (last.charIndex > 0) && (last.charIndex == compileError.charIndex)
-						)
+					//this regex looks for errors like:
+					//	"./example.cpp:74:2: error: 'mistake' was not declared in this scope"
+					//	"./example.cpp:93: undefined reference to `mistake'"
+					//and breaks it into:
+					//	match[1]: "./example.cpp"
+					//	match[2]: "74"
+					//	match[3]: "2"
+					//	match[4]: " error: 'mistake' was not declared in this scope"
+					
+					var m = line.match(/^(.*?):(\d+):(\d*):{0,1}(.*)/);
+					if(m)
 					{
-						//merge into last
-						last.raw += "\n" + compileError.raw;
-						last.err += "\n" + compileError.err;
+						var compileError = {raw: line, file: m[1], line: m[2], charIndex: m[3] || 0, err: m[4].trim()};
+						var last = (compileErrors.length > 0) && compileErrors[compileErrors.length - 1];
+						if(		last && (last.file == compileError.file) && (last.line == compileError.line)
+								&& (last.charIndex > 0) && (last.charIndex == compileError.charIndex)
+							)
+						{
+							//merge into last
+							last.raw += "\n" + compileError.raw;
+							last.err += "\n" + compileError.err;
+						}
+						else
+							compileErrors.push(compileError);	//add new
 					}
-					else
-						compileErrors.push(compileError);	//add new
+				});
+				
+				if(sources.length > 0)
+					next();
+				else
+				{
+					return((isRootModule? Q.resolve() : ths.makelib(pathsTable, output, objectFiles)).then(function(result)
+					{
+						if(result)
+							stderr += result.errors;
+
+						promise.resolve(		//complete with no error
+						{
+							output: output,
+							compileErrors: compileErrors,
+							returnCode: (result && result.returnCode) || returnCode,	//if either is nonzero, return it
+							stderr: stderr
+						});
+
+					}).fail(function(e)
+					{
+						promise.reject(e);
+					}));
 				}
-			});
-			
-			//invoke callback with no error
-			callback(undefined,
-			{
-				compileErrors: compileErrors,
-				returnCode: returnCode,
-				stderr: stderr
-			});
-		}.bind(this));
+
+			}.bind(this));
+
+		})();	//end of async loop and invocation
+
+		return(promise.promise);
 	},
 	
 	assemble: function(output, sourceFileArray, settings)	//might not need
@@ -392,8 +493,47 @@ Toolchain.prototype =
 		;
 	},
 	
-	makebin: function(pathsTable, objectFile, outputFile, callback)
+	makelib: function(pathsTable, outputFile, objectFiles)	//promised
 	{
+		var promise = Q.defer(), args = ["q", outputFile].concat(objectFiles);
+		
+		fs.unlink(outputFile, function(err)
+		{
+			if(err && (err.code != "ENOENT"))
+				return(promise.reject(err));
+
+			var ar = childProcess.spawn(path.join(pathsTable.sdk, "bin", "arm-none-eabi-ar"), args,
+			{
+				env: Config.env(pathsTable)
+			});
+			ar.stdout.setEncoding("utf8");
+			ar.stderr.setEncoding("utf8");
+			var stdout = "", stderr = "";
+			
+			ar.stdout.on("data", function(data)
+			{
+				stdout += data;
+			}.bind(this));
+			ar.stderr.on("data", function(data)
+			{
+				stderr += data;
+			}.bind(this));
+			ar.on("exit", function(returnCode)
+			{
+				promise.resolve(
+				{
+					returnCode: returnCode,
+					output: stdout,
+					errors: stderr
+				});
+			}.bind(this));
+		});
+		return(promise.promise);
+	},
+
+	makebin: function(pathsTable, outputFile, objectFile)	//promise
+	{
+		var promise = Q.defer();
 		var args = ["-j", ".text", "-O", "binary", objectFile, outputFile];
 		
 		var objcopy = childProcess.spawn(path.join(pathsTable.sdk, "bin", "arm-none-eabi-objcopy"), args,
@@ -414,17 +554,21 @@ Toolchain.prototype =
 		}.bind(this));
 		objcopy.on("exit", function(returnCode)
 		{
-			callback(undefined,
+			promise.resolve(
 			{
 				returnCode: returnCode,
 				output: stdout,
 				errors: stderr
 			});
 		}.bind(this));
+
+		return(promise.promise);
 	},
 	
-	disassemble: function(pathsTable, objectFileArray, outputFile, callback)
+	disassemble: function(pathsTable, outputFile, objectFileArray)	//promise
 	{
+		var promise = Q.defer();
+
 		var args = ["-d"];
 		
 		args = args.concat(objectFileArray);
@@ -447,17 +591,21 @@ Toolchain.prototype =
 		}.bind(this));
 		disassembler.on("exit", function(returnCode)
 		{
-			callback(undefined,
+			promise.resolve(
 			{
 				returnCode: returnCode,
 				disassembly: stdout,
 				errors: stderr
 			});
 		}.bind(this));
+
+		return(promise.promise);
 	},
 	
-	reportSize: function(pathsTable, objectFileArray, callback)
+	reportSize: function(pathsTable, objectFileArray)	//promise
 	{
+		var promise = Q.defer();
+
 		var args = [].concat(objectFileArray);
 		
 		var elfSize = childProcess.spawn(path.join(pathsTable.sdk, "bin", "arm-none-eabi-size"), args,
@@ -492,15 +640,17 @@ Toolchain.prototype =
 					sizes.push({name: fields.pop(), size: parseInt(fields.shift())});
 			}
 
-			callback(undefined,
+			promise.resolve(
 			{
 				returnCode: returnCode,
 				sizes: sizes,
 				errors: stderr
 			});
 		}.bind(this));
+
+		return(promise.promise);
 	}
-}
+};
 function Toolchain()
 {
 }
@@ -508,11 +658,13 @@ function Toolchain()
 
 Targets.prototype =
 {
-	open: function(targetsJsonFile, callback)
+	open: function(targetsJsonFile)	//promise
 	{
+		var promise = Q.defer();
+
 		fs.readFile(targetsJsonFile, "utf8", function(err, data)
 		{
-			if(err)	return(callback(new FileError("Could not load targets JSON file", targetsJsonFile)));
+			if(err)	return(promise.reject(new FileError("Could not load targets JSON file", targetsJsonFile)));
 			
 			var targets;
 			try
@@ -521,14 +673,16 @@ Targets.prototype =
 			}
 			catch(e)
 			{
-				console.log("parse error: ", e);
-				return(callback(new ParseError("Could not parse targets JSON file", targetsJsonFile)));
+				//console.warn("Could not parse targets.json file at " + targetsJsonFile + ": ", e);
+				return(promise.reject(new ParseError("Could not parse targets JSON file", targetsJsonFile)));
 			}
 			
 			this.add(targets.targets);
-			callback(undefined);
+			promise.resolve(targets.targets);
 			
 		}.bind(this));
+
+		return(promise.promise);
 	},
 	add: function(arrayOfTargets)
 	{
@@ -563,79 +717,267 @@ Targets.prototype =
 		
 		return(target);
 	}
-}
+};
 function Targets()
 {
 	this.targets = {};
+}
+
+////////////////////////////////////////////////////////////////
+
+function fingerprintObject(obj)
+{
+	//mildly canonicalize the object to produce a consistent serializeation we can hash. Obviously this is no ASN-1.
+	var json = {};
+	Object.keys(obj).sort().forEach(function(k){json[k]=obj[k];});	//legilographically sort keys
+	
+	var print = crypto.createHash("md5");
+	print.update(JSON.stringify(json));
+	return(print.digest("hex"));
 }
 
 
 ////////////////////////////////////////////////////////////////
 
 
-//global setting!
-/*
-var sdkBase = "../SDK6/";
-var platformBase = sdkBase + "../platform/";
-
-var toolchain = new Toolchain(sdkBase);
-
-var targets = new Targets();
-
-targets.open(platformBase + "targets.json", function(err)
+ProjectBuilder.prototype =
 {
-	if(err)
-	{
-		console.log("error: ", err);
-		return;
-	}
-	
-	var module = new Module(".");
-
-	module.open(function(err, moduleJson)
-	{
-		if(err)
-		{
-			console.log("error: ", err);
-			return;
-		}
-		
-		var targetName = moduleJson.compatibleWith[0];	//@@hack
-		
-		var settings = targets.resolve(targetName, moduleJson);
-		
-		if(!settings)
-		{
-			console.log("could not resolve target: " + targetName);
-			return;
-		}
-		
-		console.log("settings: ", settings);
-		
-		toolchain.compile("out.elf", {"project": ".", "platform": platformBase}, settings, function(err, compileResult)
-		{
-			console.log("compilation complete: ", compileResult);
-			
-			toolchain.disassemble(["out.elf"], function(err, result)
-			{
-				console.log("disassembly complete: ", result);
-			});
-		});
-	});
-});
-*/
-
-Compiler.prototype =
-{
-	toolchain: null,
-	targets: null,
-	
 	//dirs must contain
 	//  sdk: sdk root - ./bin/gcc
 	//  project: active project root - ./module.json
 	//	module: module cache root - ./modulename/version
 	//  output: output directory - ./out.elf
-	compile: function(dirs, callback)
+	build: function(dirs)
+	{
+		var promise = Q.defer();
+
+		//moduleverse.debug(true);
+		
+		var ths = this, moduleCache = {}, modulePromises = {}, buildList = [];
+		
+		var recurse = function(moduleOwnerAndName, moduleDir)
+		{
+			var promise = Q.defer();
+			
+			new Module(moduleDir).open().then(function(moduleJson)
+			{
+				moduleJson.dir = moduleDir;
+				moduleCache[moduleOwnerAndName] = moduleJson;
+				
+				//resolve dependencies
+				var deps = [], promises = [];
+				Object.keys(moduleJson.dependencies).forEach(function(o, i)
+				{
+					//validate
+					if(!o || (typeof o != "string"))
+						return(promise.reject(new Error("invalid dependency: " + String(o))));
+					
+					var x = o.split("/");
+					if(!x || (x.length != 2))
+						return(promise.reject(new Error("dependency is malformed: " + String(o))));
+					
+					//is it in the cache already, and of a satisfactory version?	//@@add proper version check
+					if(moduleCache[o])
+						return;
+					
+					deps.push({index: i, orig: o, owner: x[0], name: x[1], version: moduleJson.dependencies[o]});
+					
+					promises.push(moduleverse.findLocalInstallation(Config.coreModulesDir(), x[0], x[1]));
+				});
+				
+				Q.all(promises).then(function(modules)
+				{
+					var p = [];
+					for(var i = 0; i < deps.length; i++)
+					{
+						if(modules[i] == undefined)	//not able to load module deps[i]
+						{
+							//queue a download operation; if that succeeds, recurse, else we can't build so bail out completely
+							(function()
+							{
+								var downloadModuleName = deps[i].orig,
+									downloadPromise = new moduleverse.ModuleUpdater(	Config.coreModulesDir(),
+																						deps[i].owner,
+																						deps[i].name,
+																						deps[i].version
+																					).promise;
+								p.push(downloadPromise);
+								
+								downloadPromise.then(function(coreModulesDir)
+								{
+									//misnomer: the loop is effectively restarted to parse the newly-downloaded module
+									return(recurse(downloadModuleName, coreModulesDir));
+								}).fail(function(e)
+								{
+									console.warn("unable to download dependency: " + downloadModuleName);
+									return(Q.reject(e));
+								});
+
+							})();
+							continue;
+						}
+						
+						var fullModuleName = deps[i].orig;
+						
+						if(moduleCache[fullModuleName])
+						{
+							p.push(modulePromises[fullModuleName]);
+							continue;	//depend on the one we're already evaluating (or have evaluated)
+						}
+						
+						moduleCache[fullModuleName] = true;	//cache it to be used by parallel and future inquiries
+						p.push(modulePromises[fullModuleName] = recurse(deps[i].orig, modules[i].__path));
+					}
+					
+					//chain to a step that joins all disparate find/download operations for this module
+					return(Q.all(p).then(function()
+					{
+						for(var i = 0; i < deps.length; i++)
+							ths.inheritDependencyProperties(dirs, moduleJson, moduleCache[deps[i].orig]);
+
+						buildList.push(moduleJson);
+						
+						promise.resolve();
+					}));
+					
+				}).fail(function(e)
+				{
+					promise.reject(e);
+				});
+				
+			});
+			return(promise.promise);
+		};
+		
+		var mkdirPromise = Q.defer();
+
+		mkdirp(Config.cacheDir(), function(err)
+		{
+			if(err)	mkdirPromise.reject();
+			else	mkdirPromise.resolve();
+		});
+
+		Q.all([		ths.targets.open(path.join(dirs.platform, "targets.json")),
+					mkdirPromise
+				])
+		.then(function()
+		{
+			recurse("local", dirs.project).then(function(e)
+			{
+				if(verbose)
+					console.log("\ndone:", buildList);
+
+				//build each project in the buildList - each as object files except the last, which must be built
+				//  as an aggregate of all preceding object files and its own sources.
+				var libs = [], i = 0;
+				(function()
+				{
+					var next = arguments.callee, moduleJson = buildList[i], modulePath = moduleJson.dir,
+						fingerprint = fingerprintObject(buildList[i]);
+
+					var targetName = (moduleJson.compatibleWith && moduleJson.compatibleWith[0]) || "Galago4",	//hack, should be specified as a high-level param
+						resolvedModuleJSON = ths.targets.resolve(targetName, moduleJson);
+
+					dirs.project = modulePath;	//specialize the dir table for this module
+
+					var isRootModule = ((i + 1) == buildList.length), outputName;
+					if(isRootModule)
+					{
+						outputName = path.join(modulePath, resolvedModuleJSON.name + ".elf");
+						resolvedModuleJSON.files = resolvedModuleJSON.files.concat(libs.map(function(o)
+						{
+							return({base: "abs", name: o});
+						}));
+					}
+					else
+						libs.push(outputName = path.join(Config.cacheDir(), pathExtensionSwap(path.basename(resolvedModuleJSON.name), "-" + fingerprint + ".a")));
+
+					if(verbose)
+						console.log("compiling ", isRootModule, modulePath, resolvedModuleJSON);
+					
+					ths.toolchain.compile(		dirs,
+												outputName,
+												resolvedModuleJSON,
+												isRootModule
+											).then(function(compileResult)
+					{
+						//if(verbose)
+							console.log("built module " + modulePath);
+						
+						if(++i < buildList.length)
+							next();
+						else
+							promise.resolve(compileResult);
+
+					}).fail(function()
+					{
+						promise.reject(new Error("Module at " + modulePath + " could not be built."));
+					});
+
+				})();
+
+			}).fail(function(e)
+			{
+				console.warn("Cannot build because a dependency of this project could not be resolved, identified, loaded or updated.")
+				//process.exit(-1);
+				promise.reject(e);
+			});
+		});
+
+		return(promise.then(function(compileResult)
+		{
+			if(verbose)
+				console.log("compile result:", compileResult);
+
+			compileResult.disasmPath = pathExtensionSwap(compileResult.output, ".disasm.txt");
+
+			return(ths.toolchain.disassemble(dirs, compileResult.disasmPath, [compileResult.output]).then(function(result)
+			{
+				compileResult.binaryPath = pathExtensionSwap(compileResult.output, ".bin");
+				return(ths.toolchain.makebin(dirs, compileResult.binaryPath, compileResult.output));
+
+			}).then(function(binResults)
+			{
+				return(ths.toolchain.reportSize(dirs, compileResult.output));
+
+			}).then(function(sizeResults)
+			{
+				compileResult.sizes = sizeResults.sizes;
+
+				return(compileResult);
+			}));
+		}));
+	},
+
+	inheritDependencyProperties: function ProjectBuilder_inheritDependencyProperties(dirs, receiver, donor)
+	{
+		//console.log(receiver.name + " <- inherits - " + donor.name);
+
+		//take certain properties of this module and roll them into the parent
+		var dirsTable = _extend({}, dirs, {project: donor.dir});
+		
+		//katamari the includes
+		if(donor.include && (donor.include instanceof Array))
+			receiver.include = (receiver.include || (receiver.include = [])).concat(
+					this.toolchain.resolvePaths(	donor.include.filter(function(f)
+													{
+														return(f.export === true);
+													}),
+													dirsTable,
+													"project"
+												)
+			);
+
+		//katamari the preprocessor defines
+		if(donor.definitions && (typeof donor.definitions == "object"))
+			_extend(receiver.definitions || (receiver.definitions = {}), donor.definitions);
+		
+		//overwrite the linker script file, if present
+		if(donor.linkFile && !receiver.linkFile)
+			receiver.linkFile = this.toolchain.resolvePaths([donor.linkFile], dirsTable, "project")[0];
+	},
+	
+	/*old_compile: function(dirs, callback)
 	{
 		var ths = this;
 		this.targets.open(path.join(dirs.platform, "targets.json"), function(err)
@@ -661,17 +1003,9 @@ Compiler.prototype =
 				else
 					settings = moduleJson;	//no dependencies	//@@should this be implemented as targets.resolve(undefined, {...})?
 				
-				var deps = [];
-				//resolve dependencies
-				for(var depNum in settings.dependencies)
-				{
-					var depName = settings.dependencies[depNum];
-					//@@filter depName to replace "/" with "+" here??
-					console.log("Matching dependency: ", Config.modulesDir(), depName);
-					deps.push(moduleverse.findLocalInstallation(Config.modulesDir(), depName, depName));
-				}
-
-				var build = function build(dependencyJSON)
+				var deps = {};
+				
+				var build = function build()
 				{
 					var outputDir = (dirs.output || dirs.project || ".")
 					var outputName = path.join(outputDir, "module.elf");
@@ -697,15 +1031,32 @@ Compiler.prototype =
 					});
 				};
 				
-				if(deps.length > 0)
-					Q.all(deps).then(build);
+				//resolve dependencies
+				for(var depNum in settings.dependencies)
+				{
+					var depName = settings.dependencies[depNum];
+					
+					if(!depName || (typeof depName != "string"))
+						return(callback(new Error("invalid dependency: " + String(depName))));
+					
+					var dependency = depName.split("/");
+					if(!dependency || (dependency.length != 2))
+						return(callback(new Error("dependency is malformed: " + String(depName))));
+					
+					console.log("Matching dependency: ", Config.modulesDir(), dependency);
+					
+					deps[dependency] = moduleverse.findLocalInstallation(Config.modulesDir(), dependency[0], dependency[1]);
+				}
+
+				if(Object.keys(deps).length > 0)
+					settleDependencies(deps);
 				else
 					build([]);
 			});
 		});
-	}
+	}*/
 };
-function Compiler()
+function ProjectBuilder()
 {
 	this.toolchain = new Toolchain();
 	this.targets = new Targets();
@@ -766,7 +1117,7 @@ return(
 {
 	Config: Config,
 	SubProcess: SubProcess,
-	Compiler: Compiler,
+	ProjectBuilder: ProjectBuilder,
 	GDBServerProcess: GDBServerProcess
 });
 
@@ -778,7 +1129,7 @@ if(require.main == module)
 {
 	process.stdin.on("data", function(){});	//keeps node alive
 
-	var compiler = new module.exports.Compiler();
+	var builder = new module.exports.ProjectBuilder();
 
 	var options =
 	{
@@ -833,7 +1184,7 @@ if(require.main == module)
 	//@@asyncly determine the sdk path.
 	//  The platform (this), project and output paths are determined without lookup.
 	//  Module paths of dependencies are determined recursively.
-	var sdkPromise = moduleverse.findLocalInstallation(Config.baseDir(), "logiblock", Config.sdkName());	//take the latest installed SDK
+	var sdkPromise = moduleverse.findLocalInstallation(Config.coreModulesDir(), "logiblock", Config.sdkName());	//take the latest installed SDK
 
 	sdkPromise.then(function(sdkBase)
 	{
@@ -843,7 +1194,7 @@ if(require.main == module)
 
 			var percent = "0.00", lastFile = "", blank = "                        ";
 
-			var downloadPromise = new moduleverse.ModuleUpdater(Config.baseDir(), "logiblock", Config.sdkName(), undefined)
+			var downloadPromise = new moduleverse.ModuleUpdater(Config.coreModulesDir(), "logiblock", Config.sdkName(), undefined)
 				.on("version", function(ver)
 				{
 					console.log("Downloading SDK version: " + ver);
@@ -904,169 +1255,167 @@ if(require.main == module)
 		if(options.build)
 		{
 			console.log("Building...");
-			compiler.compile(
+			builder.build(
 			{
 				sdk: sdkBasePath,
 				project: options.projectBase,
 				platform: path.resolve(__dirname, ".."),
-				module: Config.baseDir(),
-				output: options.projectBase,	//@@for now
-			}, function(err, outputFile, result)
+				module: Config.coreModulesDir(),
+				output: options.projectBase		//@@for now
+
+			}).fail(function()
 			{
-				if(err)
+				console.warn("Compiling failed!  Error:");
+				console.warn(err);
+				process.exit(-1);
+
+			}).then(function(result)	//outputFile, result)
+			{
+				//console.log("compile() RESULT: ", result);
+				/*
+				for(var i = 0; i < result.compileErrors.length; i++)
 				{
-					console.warn("Compiling failed!  Error:");
-					console.warn(err);
-					process.exit(-1);
+					console.log(result.compileErrors[i]);
+				}
+				*/
+				
+				if(result.returnCode == 0)
+				{
+					var sizeStr;
+					if(result.sizes && (result.sizes.length > 0))
+					{
+						var moduleSize = result.sizes[0].size;
+						
+						if(moduleSize >= 1048576)
+							sizeStr = (moduleSize / 1048576).toFixed(2) + "MB";
+						else if(moduleSize >= 1024)
+							sizeStr = (moduleSize / 1024).toFixed(2) + "KB";
+					}
+					else
+						sizeStr = "(unknown)";
+
+					console.log("Built successfully, using " + sizeStr + " of 32KB.");	//@@pull size limit from targets
+
+					console.log("\n  ELF output:  " + result.output + "\n  Binary image:  " + result.binaryPath + "\n  Disassembly file:  " + result.disasmPath + "\n");
 				}
 				else
 				{
-					//console.log("compile() RESULT: ", result);
-					/*
-					for(var i = 0; i < result.compileErrors.length; i++)
-					{
-						console.log(result.compileErrors[i]);
-					}
-					*/
-					
-					if(result.returnCode == 0)
-					{
-						var sizeStr;
-						if(result.sizes && (result.sizes.length > 0))
-						{
-							var moduleSize = result.sizes[0].size;
-							
-							if(moduleSize >= 1048576)
-								sizeStr = (moduleSize / 1048576).toFixed(2) + "MB";
-							else if(moduleSize >= 1024)
-								sizeStr = (moduleSize / 1024).toFixed(2) + "KB";
-						}
-						else
-							sizeStr = "(unknown)";
+					console.warn("Did not build successfully.  Please check the compiler warnings and errors list for more information.");
+					process.exit(result.returnCode);
+				}
 
-						console.log("Built successfully, using " + sizeStr + " of 32KB.");	//@@pull size limit from targets
 
-						console.log("\n  ELF output:  " + outputFile + "\n  Binary image:  " + result.binaryPath + "\n  Disassembly file:  " + result.disasmPath + "\n");
-					}
+				if(options.experimental)
+					console.log("\nNOTICE: you have specified an EXPERIMENTAL mode\n  that is known not to work in some cases.\n");
+
+				var installPromise = Q.defer();
+				if(options.runDriver)
+				{
+					var driverOptions = [];
+					var driverNoisy = true;
+
+					if(options.install)
+						driverOptions.push(result.output);
 					else
 					{
-						console.warn("Did not build successfully.  Please check the compiler warnings and errors list for more information.");
-						process.exit(result.returnCode);
-					}
-
-
-					if(options.experimental)
-						console.log("\nNOTICE: you have specified an EXPERIMENTAL mode\n  that is known not to work in some cases.\n");
-
-					var installPromise = Q.defer();
-					if(options.runDriver)
-					{
-						var driverOptions = [];
-						var driverNoisy = true;
-
-						if(options.install)
-							driverOptions.push(outputFile);
-						else
-						{
-							console.log("No firmware download requested.");
-							driverNoisy = false;
-							installPromise.resolve();
-						}
-						
-						var driverProcess = childProcess.spawn(path.join(__dirname, Config.gdbServerName()), driverOptions, {});
-						
-						process.on("SIGINT", function()
-						{
-							return(false);
-						});
-
-						driverProcess.stdout.setEncoding("utf8");
-						driverProcess.stderr.setEncoding("utf8");
-
-						driverProcess.stdout.on("data", function(d)
-						{
-							if(driverNoisy || (process.platform == "win32"))	//@@special exception for windows - always noisy
-								process.stdout.write(d);
-						});
-						driverProcess.stderr.on("data", function(d)
-						{
-							if(driverNoisy)
-								process.stdout.write(d);
-
-							if(d.match(/Progress 100\.00/) != null)	//@@dirty hack!
-							{
-								installPromise.resolve();
-								driverNoisy = false;
-							}
-						});
-
-						driverProcess.on("exit", function(code)
-						{
-							console.warn("Driver terminated unexpectedly!");	//red herring?
-						});
-					}
-					else
+						console.log("No firmware download requested.");
+						driverNoisy = false;
 						installPromise.resolve();
-
-					if(options.runGDB)
+					}
+					
+					var driverProcess = childProcess.spawn(path.join(__dirname, Config.gdbServerName()), driverOptions, {});
+					
+					process.on("SIGINT", function()
 					{
-						if(process.platform != "win32")
+						return(false);
+					});
+
+					driverProcess.stdout.setEncoding("utf8");
+					driverProcess.stderr.setEncoding("utf8");
+
+					driverProcess.stdout.on("data", function(d)
+					{
+						if(driverNoisy || (process.platform == "win32"))	//@@special exception for windows - always noisy
+							process.stdout.write(d);
+					});
+					driverProcess.stderr.on("data", function(d)
+					{
+						if(driverNoisy)
+							process.stdout.write(d);
+
+						if(d.match(/Progress 100\.00/) != null)	//@@dirty hack!
 						{
-							var pty = require("./pty.js-prebuilt");
-							var keypress = require("keypress");
-							
-							installPromise.promise.then(function()
-							{
-								console.log("Starting GDB...");
-								var gdbProcess = pty.spawn(path.join(sdkBasePath, "bin", "arm-none-eabi-gdb"), [outputFile],
-								{
-									name: "xterm",
-									cwd: options.projectBase,
-									env: process.env
-								});
-								
-								gdbProcess.on("data", function(d)
-								{
-									process.stdout.write(d);
-								});
-
-								keypress(process.stdin);
-								process.stdin.on("keypress", function(ch, keypress)
-								{
-									gdbProcess.write((ch !== undefined)? ch : keypress.sequence);
-								});
-								process.stdin.setRawMode(true);
-								process.stdin.resume();
-
-								process.on("SIGINT", function()
-								{
-									gdbProcess.kill("SIGINT");	//send it right along
-									return(false);
-								});
-								
-								gdbProcess.on("exit", function(code)
-								{
-									process.exit(code);
-								});
-								gdbProcess.write("target remote localhost:1033\n");	//give it a whirl on the most common port.
-							});
+							installPromise.resolve();
+							driverNoisy = false;
 						}
-						else
-							installPromise.promise.then(function()
+					});
+
+					driverProcess.on("exit", function(code)
+					{
+						console.warn("Driver terminated unexpectedly!");	//red herring?
+					});
+				}
+				else
+					installPromise.resolve();
+
+				if(options.runGDB)
+				{
+					if(process.platform != "win32")
+					{
+						var pty = require("./pty.js-prebuilt");
+						var keypress = require("keypress");
+						
+						installPromise.promise.then(function()
+						{
+							console.log("Starting GDB...");
+							var gdbProcess = pty.spawn(path.join(sdkBasePath, "bin", "arm-none-eabi-gdb"), [result.output],
 							{
-								//for win32, just run the server and instruct the user to invoke GDB manually
-								//  this is because the terminal pass-through isn't possible (or at least equivalent)
-								console.log("\nOn Windows, you will need to run GDB manually in a different window.");
+								name: "xterm",
+								cwd: options.projectBase,
+								env: process.env
 							});
+							
+							gdbProcess.on("data", function(d)
+							{
+								process.stdout.write(d);
+							});
+
+							keypress(process.stdin);
+							process.stdin.on("keypress", function(ch, keypress)
+							{
+								gdbProcess.write((ch !== undefined)? ch : keypress.sequence);
+							});
+							process.stdin.setRawMode(true);
+							process.stdin.resume();
+
+							process.on("SIGINT", function()
+							{
+								gdbProcess.kill("SIGINT");	//send it right along
+								return(false);
+							});
+							
+							gdbProcess.on("exit", function(code)
+							{
+								process.exit(code);
+							});
+							gdbProcess.write("target remote localhost:1033\n");	//give it a whirl on the most common port.
+						});
 					}
 					else
 						installPromise.promise.then(function()
 						{
-							if(options.install)
-								console.log("Firmware downloaded and execution is paused on the first instruction.\nAttach a debugger, reset or power-cycle the device to run.");
-							process.exit(0);
+							//for win32, just run the server and instruct the user to invoke GDB manually
+							//  this is because the terminal pass-through isn't possible (or at least equivalent)
+							console.log("\nOn Windows, you will need to run GDB manually in a different window.");
 						});
 				}
+				else
+					installPromise.promise.then(function()
+					{
+						if(options.install)
+							console.log("Firmware downloaded and execution is paused on the first instruction.\nAttach a debugger, reset or power-cycle the device to run.");
+						process.exit(0);
+					});
 			});
 		}
 
