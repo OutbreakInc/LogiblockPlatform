@@ -467,6 +467,7 @@ Toolchain.prototype =
 							output: output,
 							compileErrors: compileErrors,
 							returnCode: (result && result.returnCode) || returnCode,	//if either is nonzero, return it
+							stdout: stdout,
 							stderr: stderr
 						});
 
@@ -761,6 +762,9 @@ ProjectBuilder.prototype =
 			
 			new Module(moduleDir).open().then(function(moduleJson)
 			{
+				if(verbose)
+					console.log("opened module at", moduleDir, moduleJson);
+
 				moduleJson.dir = moduleDir;
 				moduleCache[moduleOwnerAndName] = moduleJson;
 				
@@ -975,86 +979,7 @@ ProjectBuilder.prototype =
 		//overwrite the linker script file, if present
 		if(donor.linkFile && !receiver.linkFile)
 			receiver.linkFile = this.toolchain.resolvePaths([donor.linkFile], dirsTable, "project")[0];
-	},
-	
-	/*old_compile: function(dirs, callback)
-	{
-		var ths = this;
-		this.targets.open(path.join(dirs.platform, "targets.json"), function(err)
-		{
-			if(err)	return(callback(err));
-			
-			var project = new Module(dirs.project);
-			project.open(function(err, moduleJson)
-			{
-				if(err)	return(callback(err));
-				
-				var settings;
-				
-				if((moduleJson.compatibleWith != undefined) && (moduleJson.compatibleWith.length > 0))
-				{
-					var targetName = moduleJson.compatibleWith[0];	//@@hack!
-					
-					settings = ths.targets.resolve(targetName, moduleJson);
-					
-					if(!settings)
-						return(callback(new Error("Could not resolve target '" + targetName + "'")));
-				}
-				else
-					settings = moduleJson;	//no dependencies	//@@should this be implemented as targets.resolve(undefined, {...})?
-				
-				var deps = {};
-				
-				var build = function build()
-				{
-					var outputDir = (dirs.output || dirs.project || ".")
-					var outputName = path.join(outputDir, "module.elf");
-					ths.toolchain.compile(dirs, outputName, settings, function(err, compileResult)
-					{
-						//console.log("compilation complete: ", compileResult);
-						if(err)	return(callback(err));
-						
-						compileResult.disasmPath = path.join(outputDir, "module.disasm.txt");
-						ths.toolchain.disassemble(dirs, [outputName], compileResult.disasmPath, function(err, result)
-						{
-							compileResult.binaryPath = path.join(outputDir, "module.bin");
-							ths.toolchain.makebin(dirs, outputName, compileResult.binaryPath, function(err, binResults)
-							{
-								ths.toolchain.reportSize(dirs, outputName, function(err, sizeResults)
-								{
-									compileResult.sizes = sizeResults.sizes;
-
-									callback(undefined, outputName, compileResult);
-								});
-							});
-						});
-					});
-				};
-				
-				//resolve dependencies
-				for(var depNum in settings.dependencies)
-				{
-					var depName = settings.dependencies[depNum];
-					
-					if(!depName || (typeof depName != "string"))
-						return(callback(new Error("invalid dependency: " + String(depName))));
-					
-					var dependency = depName.split("/");
-					if(!dependency || (dependency.length != 2))
-						return(callback(new Error("dependency is malformed: " + String(depName))));
-					
-					console.log("Matching dependency: ", Config.modulesDir(), dependency);
-					
-					deps[dependency] = moduleverse.findLocalInstallation(Config.modulesDir(), dependency[0], dependency[1]);
-				}
-
-				if(Object.keys(deps).length > 0)
-					settleDependencies(deps);
-				else
-					build([]);
-			});
-		});
-	}*/
+	}
 };
 function ProjectBuilder()
 {
@@ -1180,6 +1105,11 @@ if(require.main == module)
 
 	if(options.projectBase == undefined)
 		options.projectBase = process.cwd();
+	else if(options.projectBase.substr(-11) == "module.json")
+		options.projectBase = options.projectBase.substr(0, options.projectBase.length - 11);
+
+	if(verbose)
+		console.log("options:", options);
 
 	//@@asyncly determine the sdk path.
 	//  The platform (this), project and output paths are determined without lookup.
@@ -1263,7 +1193,7 @@ if(require.main == module)
 				module: Config.coreModulesDir(),
 				output: options.projectBase		//@@for now
 
-			}).fail(function()
+			}).fail(function(err)
 			{
 				console.warn("Compiling failed!  Error:");
 				console.warn(err);
