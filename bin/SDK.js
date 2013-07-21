@@ -782,7 +782,11 @@ ProjectBuilder.prototype =
 					
 					//is it in the cache already, and of a satisfactory version?	//@@add proper version check
 					if(moduleCache[o])
+					{
+						if(verbose)
+							console.log("=>", moduleOwnerAndName, "relies on", o, ", which is already cached so I won't resolve its dependencies");
 						return;
+					}
 					
 					deps.push({index: i, orig: o, owner: x[0], name: x[1], version: moduleJson.dependencies[o]});
 					
@@ -825,6 +829,9 @@ ProjectBuilder.prototype =
 						
 						if(moduleCache[fullModuleName])
 						{
+							if(verbose)
+								console.log("=>", moduleOwnerAndName, "relies on", fullModuleName, " which is already cached; using existing promise");
+							
 							p.push(modulePromises[fullModuleName]);
 							continue;	//depend on the one we're already evaluating (or have evaluated)
 						}
@@ -836,8 +843,10 @@ ProjectBuilder.prototype =
 					//chain to a step that joins all disparate find/download operations for this module
 					return(Q.all(p).then(function()
 					{
-						for(var i = 0; i < deps.length; i++)
-							ths.inheritDependencyProperties(dirs, moduleJson, moduleCache[deps[i].orig]);
+						Object.keys(moduleJson.dependencies || {}).forEach(function(dep)
+						{
+							ths.inheritDependencyProperties(dirs, moduleJson, moduleCache[dep]);
+						});
 
 						buildList.push(moduleJson);
 						
@@ -908,6 +917,10 @@ ProjectBuilder.prototype =
 						//if(verbose)
 							console.log("built module " + modulePath);
 						
+						//complete successfully, but signal a failed build.
+						if(compileResult.returnCode !== 0)
+							return(promise.resolve(compileResult));
+
 						if(++i < buildList.length)
 							next();
 						else
