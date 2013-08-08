@@ -8,7 +8,7 @@ var	Q = require("noq").noTry;
 var EventEmitter = require("events").EventEmitter;
 var crypto = require("crypto");
 
-var verbose = false;
+var verbose = true;
 
 ////////////////////////////////////////////////////////////////
 
@@ -815,9 +815,15 @@ ProjectBuilder.prototype =
 								{
 									//misnomer: the loop is effectively restarted to parse the newly-downloaded module
 									return(recurse(downloadModuleName, coreModulesDir));
-								}).fail(function(e)
+								}).fail(function()
 								{
-									console.warn("unable to download dependency: " + downloadModuleName);
+									var e = new Error(		"error: unable to resolve dependency "
+															+ downloadModuleName
+															+ " required by "
+															+ ((moduleOwnerAndName == "local")? "the current project" : moduleOwnerAndName)
+														);
+									e.file = path.join(moduleDir, "module.json");
+									e.line = 1;
 									return(Q.reject(e));
 								});
 
@@ -897,7 +903,7 @@ ProjectBuilder.prototype =
 					if(isRootModule)
 					{
 						outputName = path.join(modulePath, resolvedModuleJSON.name + ".elf");
-						resolvedModuleJSON.files = resolvedModuleJSON.files.concat(libs.map(function(o)
+						resolvedModuleJSON.files = resolvedModuleJSON.files.concat(libs.reverse().map(function(o)
 						{
 							return({base: "abs", name: o});
 						}));
@@ -935,8 +941,9 @@ ProjectBuilder.prototype =
 
 			}).fail(function(e)
 			{
-				console.warn("Cannot build because a dependency of this project could not be resolved, identified, loaded or updated.")
-				//process.exit(-1);
+				//if(!e.code || (e.code != 404))
+				//	e = new Error("Cannot build because a dependency of this project could not be resolved, identified, loaded or updated.");
+				console.warn("Cannot build because a dependency of this project could not be resolved, identified, loaded or updated:", e.stack);
 				promise.reject(e);
 			});
 		});
