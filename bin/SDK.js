@@ -8,7 +8,7 @@ var	Q = require("noq").noTry;
 var EventEmitter = require("events").EventEmitter;
 var crypto = require("crypto");
 
-var verbose = true;
+var verbose = false;
 
 ////////////////////////////////////////////////////////////////
 
@@ -864,6 +864,10 @@ ProjectBuilder.prototype =
 					promise.reject(e);
 				});
 				
+			}).fail(function(e)
+			{
+				console.warn("Could not open the module at " + moduleDir);
+				promise.reject(e);
 			});
 			return(promise.promise);
 		};
@@ -943,7 +947,9 @@ ProjectBuilder.prototype =
 			{
 				//if(!e.code || (e.code != 404))
 				//	e = new Error("Cannot build because a dependency of this project could not be resolved, identified, loaded or updated.");
-				console.warn("Cannot build because a dependency of this project could not be resolved, identified, loaded or updated:", e.stack);
+				console.warn("Cannot build because a dependency of this project could not be resolved, identified, loaded or updated");
+				if(e.stack)
+					console.warn(e.stack);
 				promise.reject(e);
 			});
 		});
